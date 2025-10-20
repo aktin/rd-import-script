@@ -25,10 +25,10 @@ import os
 import re
 import shutil
 import zipfile
-from abc import ABC
 from pathlib import Path
 
 import pandas as pd
+import sqlalchemy as db
 
 
 class RDImporter:
@@ -194,6 +194,7 @@ class TmpFolderManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.remove_tmp_folder()
 
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 import pandas as pd
@@ -231,6 +232,7 @@ class CSVReader(ABC):
         df.to_csv(output_path, sep=self.CSV_SEPARATOR, encoding=encoding, index=False)
         return output_path
 
+
 class CSVPreprocessor(CSVReader, ABC):
     LEADING_ZEROS = 0
 
@@ -242,7 +244,8 @@ class CSVPreprocessor(CSVReader, ABC):
         self._append_zeros_to_internal_id()
 
     def _get_csv_file_header_in_lowercase(self) -> str:
-        df = pd.read_csv(self.path_csv, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str)
+        df = pd.read_csv(self.path_csv, nrows=0, index_col=None, sep=self.CSV_SEPARATOR,
+                         encoding=self.get_csv_encoding(), dtype=str)
         df.rename(columns=str.lower, inplace=True)
         return ";".join(df.columns)
 
@@ -277,35 +280,161 @@ class CSVPreprocessor(CSVReader, ABC):
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
         encoding = self.get_csv_encoding()
         df_tmp = pd.DataFrame()
-        for chunk in pd.read_csv(self.path_csv, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
-            chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].fillna('')
-            chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].apply(
-                lambda x: ''.join([str('0' * self.LEADING_ZEROS), x]))
+        for chunk in pd.read_csv(self.path_csv, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding,
+                                 dtype=str):
+            # chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].fillna('')
+            # chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].apply(
+            # lambda x: ''.join([str('0' * self.LEADING_ZEROS), x]))
             df_tmp = pd.concat([df_tmp, chunk])
         self.save_df_as_csv(df_tmp, path_dummy, encoding)
         os.remove(self.path_csv)
         os.rename(path_dummy, self.path_csv)
 
 
+class CSVFileVerifier(CSVReader, ABC):
+    DICT_COLUMN_PATTERN: dict
+    MANDATORY_COLUMN_VALUES: list
+
+    def is_csv_in_folder(self) -> bool:
+        if not os.path.isfile(self.path_csv):
+            print(f'{self.path_csv} does not exist')
+            return False
+        return True
+
+    def check_column_names_of_csv(self):
+        df = pd.read_csv(self.path_csv, nrows=0, index_col=None, sep=self.CSV_SEPARATOR,
+                         encoding=self.get_csv_encoding(), dtype=str)
+        set_required_columns = set(self.DICT_COLUMN_PATTERN.keys())
+        set_matched_columns = set_required_columns.intersection(set(df.columns))
+        if set_matched_columns != set_required_columns:
+            raise SystemExit(
+                f"Following columns are missing in {self.CSV_NAME}: {set_required_columns.difference(set_matched_columns)}")
+
+    def get_unique_ids_of_valid_columns(self) -> list:
+        set_valid_ids = set()
+        for chunk in pd.read_csv(self.path_csv, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR,
+                                 encoding=self.get_csv_encoding(), dtype=str):
+            chunk = chunk[list(self.DICT_COLUMN_PATTERN.keys())]
+            chunk = chunk.fillna('')
+            for column in chunk.columns.values:
+                chunk = self.clear_invalid_column_fields_in_chunk(chunk, column)
+            # set_valid_ids.update(chunk['khinterneskennzeichen'].unique()]
+
+    def clear_invalid_column_fields_in_chunk(self, chunk: pd.Series, column_name: str) -> pd.Series:
+        pattern = self.DICT_COLUMN_PATTERN[column_name]
+        indices_empty_fields = chunk[chunk[column_name] == ''].index
+        indices_wrong_syntax = chunk[(chunk[column_name] != '') & (~chunk[column_name].str.match(pattern))].index
+        if len(indices_wrong_syntax):
+            if column_name not in self.MANDATORY_COLUMN_VALUES:
+                chunk.loc[indices_empty_fields, column_name] = ''
+            else:
+                chunk = chunk.drop(indices_wrong_syntax)
+        if len(indices_empty_fields) and column_name in self.MANDATORY_COLUMN_VALUES:
+            chunk = chunk.drop(indices_empty_fields)
+        return chunk
+
+
+class OpDataPreprocessor(CSVPreprocessor):
+    CSV_NAME = 'OpData.csv'
+
+    def preprocess(self):
+        super().preprocess()
+
+
 class OpDataVerifier:
-    pass
-
-
-class OpDataPreprocessor:
-    pass
+    CSV_NAME = 'OpData.csv'
+    DICT_COLUMN_PATTERN = {
+        ''
+    }
 
 
 class OpDataUploadManager:
     pass
 
 
-class EncounterInfoExtractorWithBillingId:
+
+class DatabaseConnection(ABC):
+    ENGINE: db.engine.Engine = None
+
+    def __init__(self):
+        self.username = os.environ['username']
+        self.password = os.environ['password']
+        self.i2b2_connection_url = os.environ['connection_url']
+        self.__init_engine()
+
+    def __init_engine(self):
+        pattern = r'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
+        connection = re.search(pattern, self.i2b2_connection_url).group(1)
+        self.engine = db.create_engine(f"postgresql+psycopg2://{self.username}:{self.password}@{connection}",
+                                       pool_pre_ping=True)
+
+    def open_connection(self):
+        return self.engine.connect()
+
+    def __del__(self):
+        if self.engine is not None:
+            self.engine.dispose()
+
+
+class DatabaseExtractor(DatabaseConnection, ABC):
+    SIZE_CHUNKS: int = 10000
+
+    @abstractmethod
+    def extract(self) -> pd.DataFrame:
+        pass
+
+    def _stream_query_into_df(self, query: db.sql.expression) -> pd.DataFrame:
+        df = pd.DataFrame()
+        with self.open_connection() as connection:
+            result = connection.execution_options(stream_results=True).execute(query)
+            while True:
+                chunk = result.fetchmany(size=self.SIZE_CHUNKS)
+                if not chunk:
+                    break
+                if df.empty:
+                    df = pd.DataFrame(chunk)
+                else:
+                    df = df.append(chunk, ignore_index=True)
+            if df.empty:
+                raise ValueError("No entries for database query was found")
+            df.columns = result.keys()
+            return df
+
+class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
+    """
+    SQLAlchemy-Query to extract encounter_id, encounter_num and patient_num for AKTIN
+    optin encounter from database. Column for encounter_id is renmaed to 'match_id'
+    to streamline the matching in DatabaseEncounterMatcher.
+    """
+
+    def extract(self) -> pd.DataFrame:
+        enc = db.Table(
+            "encounter_mapping", db.MetaData(), autoload_with=self.ENGINE
+        )
+        pat = db.Table("patient_mapping", db.MetaData(), autoload_with=self.ENGINE)
+        opt = db.Table(
+            "optinout_patients", db.MetaData(), autoload_with=self.ENGINE
+        )
+        query = (
+            db.select(
+                enc.c["encounter_ide"],
+                enc.c["encounter_num"],
+                pat.c["patient_num"],
+            )
+            .select_from(
+                enc.join(pat, enc.c["patient_ide"] == pat.c["patient_ide"]).join(
+                    opt, pat.c["patient_ide"] == opt.c["pat_psn"], isouter=True
+                )
+            )
+            .where(db.or_(opt.c["study_id"] != "AKTIN", opt.c["pat_psn"].is_(None)))
+        )
+        df = self._stream_query_into_df(query)
+        df.rename(columns={"encounter_ide": "match_id"}, inplace=True)
+        return df
+
+
+class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
     pass
-
-
-class EncounterInfoExtractorWithEncounterId:
-    pass
-
 
 class DatabaseEncounterMatcher:
     pass
