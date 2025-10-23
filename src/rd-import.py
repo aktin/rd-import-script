@@ -4,6 +4,14 @@
 # @VIEWNAME=Rettungsdienst Importscript
 # @MIMETYPE=zip
 # @ID=rd
+import re
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+
+import pandas as pd
+
 
 #
 #      Copyright (c) 2025  Alexander Ivanets
@@ -23,12 +31,6 @@
 #
 #
 
-import sys
-import tempfile
-import zipfile
-from pathlib import Path
-
-import pandas as pd
 
 # TODO: Split function (too heavy)
 def check_and_preprocess_csv_einsatzdaten(path_to_csv):
@@ -98,10 +100,37 @@ def check_and_preprocess_csv_einsatzdaten(path_to_csv):
         first_bad_row_number = first_bad_row_index + 1
 
         print(f"Found and removed {num_bad_rows} rows (starting from row {first_bad_row_number}) "
-                        "that were missing all available clock columns.")
+              "that were missing all available clock columns.")
         einsatzdaten_df = einsatzdaten_df[~missing_all_clocks].reset_index(drop=True)
 
     return einsatzdaten_df
+
+
+def validate_einsatzdaten(einsatzdaten_df):
+    dict_column_pattern = {
+        "einsatznummer": r"^1(2[3-9]|[3-9]\d)0\d{6}$",
+        "einsatzart": r"^(A\d{2}|[AFHKLNPTUÜ])$",
+        "uhr_erstes_klingeln": r"^\d{14}$",
+        "uhr_annahme": r"^\d{14}$",
+        "einsatzort_hausnummer": r"^\d+$",
+        "zielort_hausnummer": r"^\d+$",
+        "typ": r"^(KTW|RWT|NEF|LNA|LF|HLF|KLF|GW|LF|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW)$",
+        "uhralarm": r"^\d{14}$",
+        "uhr3": r"^\d{14}$",
+        "uhr4": r"^\d{14}$",
+        "uhr7": r"^\d{14}$",
+        "uhr8": r"^\d{14}$",
+        "uhr1": r"^\d{14}$",
+        "uhr2": r"^\d{14}$",
+    }
+    for col, pattern in dict_column_pattern.items():
+        if col in einsatzdaten_df.columns:
+            matched_column = einsatzdaten_df[col].astype(str).apply(
+                lambda x: re.search(pattern, x).group(0) if re.search(pattern, x) else None
+            )
+            # TODO: What to do if value not matching
+            if len(matched_column) != len(einsatzdaten_df[col]):
+                raise SystemExit(f"Value {col} does not match pattern {pattern}")
 
 
 def main(zip_path):
@@ -126,12 +155,12 @@ def main(zip_path):
     # Check csv files
     einsatzdaten_df = check_and_preprocess_csv_einsatzdaten(extract_dir / "einsatzdaten.csv")
 
-    # Transform each column to observation_fact
+    # Validate dataframes
+    validate_einsatzdaten(einsatzdaten_df)
 
+    # Transform data for i2b2 format
 
     # Load in database
-
-    pass
 
 
 if __name__ == "__main__":
