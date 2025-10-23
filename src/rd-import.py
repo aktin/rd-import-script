@@ -55,6 +55,13 @@ def check_and_preprocess_csv_einsatzdaten(path_to_csv):
         ValueError: For specific validation errors (missing columns, invalid rows, empty file).
         Exception: For general read errors.
     """
+    einsatzdaten_df = import_csv_as_df(path_to_csv)
+    check_df_for_mandatory_columns(einsatzdaten_df,["einsatznummer", "einsatzart", "einsatzstichwort"])
+    confirm_clock_values(einsatzdaten_df)
+
+    return einsatzdaten_df
+
+def import_csv_as_df(path_to_csv):
     try:
         einsatzdaten_df = pd.read_csv(path_to_csv, sep=";", dtype=str)
 
@@ -68,7 +75,9 @@ def check_and_preprocess_csv_einsatzdaten(path_to_csv):
     except Exception as e:
         raise Exception(f"Error reading CSV: {e}")
 
-    # Check mandatory columns
+    return einsatzdaten_df
+
+def check_df_for_mandatory_columns(einsatzdaten_df, mandatory_columns):
     mandatory_columns = ["einsatznummer", "einsatzart", "einsatzstichwort"]
     missing_cols = []
     for col in mandatory_columns:
@@ -78,6 +87,7 @@ def check_and_preprocess_csv_einsatzdaten(path_to_csv):
     if missing_cols:
         raise ValueError(f"Missing mandatory columns: {', '.join(missing_cols)}")
 
+def confirm_clock_values(einsatzdaten_df):
     # Check if one of the clock values is on each row
     clock_columns = [
         "uhr_erstes_klingeln", "uhr_annahme", "uhr3", "uhr4",
@@ -104,7 +114,6 @@ def check_and_preprocess_csv_einsatzdaten(path_to_csv):
         einsatzdaten_df = einsatzdaten_df[~missing_all_clocks].reset_index(drop=True)
 
     return einsatzdaten_df
-
 
 def validate_einsatzdaten(einsatzdaten_df):
     dict_column_pattern = {
