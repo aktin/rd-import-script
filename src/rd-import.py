@@ -141,6 +141,7 @@ def validate_einsatzdaten(einsatzdaten_df):
             if len(matched_column) != len(einsatzdaten_df[col]):
                 raise SystemExit(f"Value {col} does not match pattern {pattern}")
 
+
 def find_earliest_timestamp(df):
     clock_columns = [
         "uhr_erstes_klingeln", "uhr_annahme", "uhr3", "uhr4",
@@ -151,12 +152,17 @@ def find_earliest_timestamp(df):
     return df
 
 
-def create_i2b2_row():
-    pass
+def assign_instance_nummer(einsatzdaten_df):
+    einsatzdaten_df["start_date"] = pd.to_datetime(einsatzdaten_df["start_date"])
+    einsatzdaten_df = einsatzdaten_df.sort_values(["einsatznummer", "start_date"])
+    einsatzdaten_df["instance_num"] = einsatzdaten_df.groupby("einsatznummer").cumcount() + 1
+    return einsatzdaten_df
+
 
 def transform_einsatzdaten(einsatzdaten_df):
     # Find the smallest timestamp along rows -> timestamp
     einsatzdaten_df = find_earliest_timestamp(einsatzdaten_df)
+    einsatzdaten_df = assign_instance_nummer(einsatzdaten_df)
     transformation_rules = {
         "einsatznummer": ""
     }
