@@ -132,6 +132,26 @@ def validate_einsatzdaten(einsatzdaten_df):
             if len(matched_column) != len(einsatzdaten_df[col]):
                 raise SystemExit(f"Value {col} does not match pattern {pattern}")
 
+def find_earliest_timestamp(df):
+    clock_columns = [
+        "uhr_erstes_klingeln", "uhr_annahme", "uhr3", "uhr4",
+        "uhr7", "uhr8", "uhr1", "uhr2"
+    ]
+    df_clocks = df[clock_columns].astype("datetime64[ns]")
+    df["start_date"] = df_clocks.min(axis=1).apply(lambda x: x.strftime("%Y%m%d%H%M%S"))
+    return df
+
+
+def create_i2b2_row():
+    pass
+
+def transform_einsatzdaten(einsatzdaten_df):
+    # Find the smallest timestamp along rows -> timestamp
+    einsatzdaten_df = find_earliest_timestamp(einsatzdaten_df)
+    transformation_rules = {
+        "einsatznummer": ""
+    }
+
 
 def main(zip_path):
     # Extract zip files in tmp folder
@@ -159,7 +179,7 @@ def main(zip_path):
     validate_einsatzdaten(einsatzdaten_df)
 
     # Transform data for i2b2 format
-
+    dict_dict_row = transform_einsatzdaten(einsatzdaten_df)
     # Load in database
 
 
