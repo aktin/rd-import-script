@@ -401,7 +401,7 @@ def main(zip_path):
     log.info(f"Starting import for {zip_path}")
     extract_dir = extract_zip(zip_path)
 
-    for file_key, file_config in CONFIG["files"].items():
+    for _, file_config in CONFIG["files"].items():
         filename = file_config["filename"]
         log.info(f"Processing file: {filename}...")
 
@@ -539,7 +539,6 @@ if __name__ == "__main__":
         ],
     )
 
-    # BUG FIX: Define the logger object
     log = logging.getLogger(__name__)
 
     main(sys.argv[1])
