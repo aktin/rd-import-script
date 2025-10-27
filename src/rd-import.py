@@ -8,6 +8,8 @@ import re
 import sys
 import tempfile
 import zipfile
+import logging
+import sys
 from pathlib import Path
 from functools import partial
 
@@ -32,180 +34,258 @@ import pandas as pd
 #
 #
 
+# =============================================================================
+# --- CONFIGURATION ---
+# =============================================================================
+CONFIG = {
+    "files": {
+        "einsatzdaten": {
+            "filename": "einsatzdaten.csv",
+            "mandatory_columns": ["einsatznummer", "einsatzart", "einsatzstichwort"],
+            "clock_columns": [
+                "uhr_erstes_klingeln",
+                "uhr_annahme",
+                "uhr3",
+                "uhr4",
+                "uhr7",
+                "uhr8",
+                "uhr1",
+                "uhr2",
+            ],
+            "integer_cleanup_columns": ["einsatzort_hausnummer", "zielort_hausnummer"],
+            "regex_patterns": {
+                "einsatznummer": r"^1(2[3-9]|[3-9]\d)0\d{6}$",
+                "einsatzart": r"^(A\d{2}|[AFHKLNPTUÜ])$",
+                "uhr_erstes_klingeln": r"^\d{14}$",
+                "uhr_annahme": r"^\d{14}$",
+                "einsatzort_hausnummer": r"^\d+$",
+                "zielort_hausnummer": r"^\d+$",
+                "typ": r"^(?:$|\d+(?:-\d+)?|(?:KTW|RTW|RWT|NEF|LNA|LF|HLF|KLF|GW|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW|PERSONAL)(?: ?\d+(?:-\d+)?)?)$",
+                "uhralarm": r"^\d{14}$",
+                "uhr3": r"^\d{14}$",
+                "uhr4": r"^\d{14}$",
+                "uhr7": r"^\d{14}$",
+                "uhr8": r"^\d{14}$",
+                "uhr1": r"^\d{14}$",
+                "uhr2": r"^\d{14}$",
+            },
+        }
+    },
+    "i2b2_key_columns": {
+        "encounter_num": "einsatznummer",
+        "patient_num": "einsatznummer",
+        "start_date": "_metadata_start_date",
+        "instance_num": "_metadata_instance_num",
+    },
+    "i2b2_transforms": [
+        # tval_transform instructions
+        {
+            "source_col": "einsatznummer",
+            "transform_type": "tval",
+            "concept_cd": "AS:ID",
+        },
+        {
+            "source_col": "einsatzstichwort",
+            "transform_type": "tval",
+            "concept_cd": "AS:KEYWORD",
+        },
+        {
+            "source_col": "einsatzstichwort_text",
+            "transform_type": "tval",
+            "concept_cd": "AS:KEYWORDTXT",
+        },
+        {
+            "source_col": "uhr_erstes_klingeln",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_FIRSTRING",
+        },
+        {
+            "source_col": "uhr_annahme",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_ACCEPT",
+        },
+        {
+            "source_col": "diagnose",
+            "transform_type": "tval",
+            "concept_cd": "AS:DIAGNOSE",
+        },
+        {
+            "source_col": "bemerkung",
+            "transform_type": "tval",
+            "concept_cd": "AS:COMMENT",
+        },
+        {
+            "source_col": "name",
+            "transform_type": "tval",
+            "concept_cd": "AS:RESSOURCENAME",
+        },
+        {
+            "source_col": "uhralarm",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_ALERT",
+        },
+        {
+            "source_col": "uhr3",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_3",
+        },
+        {
+            "source_col": "uhr4",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_4",
+        },
+        {
+            "source_col": "uhr7",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_7",
+        },
+        {
+            "source_col": "uhr8",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_8",
+        },
+        {
+            "source_col": "uhr1",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_1",
+        },
+        {
+            "source_col": "uhr2",
+            "transform_type": "tval",
+            "concept_cd": "AS:CLOCK_2",
+        },
+        # code_transform instructions
+        {
+            "source_col": "einsatzart",
+            "transform_type": "code",
+            "concept_cd_base": "AS:TYPE",
+        },
+        {
+            "source_col": "typ",
+            "transform_type": "code",
+            "concept_cd_base": "AS:RESSOURCETYPE",
+        },
+        {
+            "source_col": None,
+            "transform_type": "code",
+            "concept_cd_base": "AS:LOCATION",
+        },
+        {
+            "source_col": None,
+            "transform_type": "code",
+            "concept_cd_base": "AS:DESTINATION",
+        },
+        # cd_transform instructions
+        {
+            "source_col": "einstzort_staat",
+            "transform_type": "cd",
+            "concept_cd": "AS:LOCATION",
+            "modifier_cd": "country",
+        },
+        {
+            "source_col": "einstzort_bundesland",
+            "transform_type": "cd",
+            "concept_cd": "AS:LOCATION",
+            "modifier_cd": "state",
+        },
+        {
+            "source_col": "einsatzort_ort",
+            "transform_type": "cd",
+            "concept_cd": "AS:LOCATION",
+            "modifier_cd": "city",
+        },
+        {
+            "source_col": "einsatzort_ortsteil",
+            "transform_type": "cd",
+            "concept_cd": "AS:LOCATION",
+            "modifier_cd": "suburb",
+        },
+        {
+            "source_col": "einsatzort_strasse",
+            "transform_type": "cd",
+            "concept_cd": "AS:LOCATION",
+            "modifier_cd": "street",
+        },
+        {
+            "source_col": "einsatzort_hausnummer",
+            "transform_type": "cd",
+            "concept_cd": "AS:LOCATION",
+            "modifier_cd": "houseNummer",
+        },
+        {
+            "source_col": "zielort_staat",
+            "transform_type": "cd",
+            "concept_cd": "AS:DESTINATION",
+            "modifier_cd": "country",
+        },
+        {
+            "source_col": "zielort_bundesland",
+            "transform_type": "cd",
+            "concept_cd": "AS:DESTINATION",
+            "modifier_cd": "state",
+        },
+        {
+            "source_col": "zielort_ort",
+            "transform_type": "cd",
+            "concept_cd": "AS:DESTINATION",
+            "modifier_cd": "city",
+        },
+        {
+            "source_col": "zielort_ortsteil",
+            "transform_type": "cd",
+            "concept_cd": "AS:DESTINATION",
+            "modifier_cd": "suburb",
+        },
+        {
+            "source_col": "zielort_strasse",
+            "transform_type": "cd",
+            "concept_cd": "AS:DESTINATION",
+            "modifier_cd": "street",
+        },
+        {
+            "source_col": "zielort_hausnummer",
+            "transform_type": "cd",
+            "concept_cd": "AS:DESTINATION",
+            "modifier_cd": "houseNummer",
+        },
+    ],
+}
 
-def check_and_preprocess_csv_einsatzdaten(path_to_csv):
-    """
-    Validates an 'Einsatzdaten' CSV file based on specific column requirements.
-    The function raises an Exception if validation fails.
-
-    Checks for:
-    1. File readability and format (semicolon-separated).
-    2. Presence of mandatory columns: ["einsatznummer", "einsatzart", "einsatzstichwort"].
-    3. For every row, at least one of the specified clock columns must have a value.
-
-    Args:
-        path_to_csv (str): The file path to the CSV to be checked.
-
-    Returns:
-        void (None): The function does not return a value. It raises an exception on failure.
-
-    Raises:
-        FileNotFoundError: If the file is not found.
-        pd.errors.EmptyDataError: If the file is empty or malformed.
-        ValueError: For specific validation errors (missing columns, invalid rows, empty file).
-        Exception: For general read errors.
-    """
-    einsatzdaten_df = import_csv_as_df(path_to_csv)
-    check_df_for_mandatory_columns(
-        einsatzdaten_df, ["einsatznummer", "einsatzart", "einsatzstichwort"]
-    )
-    confirm_clock_values(einsatzdaten_df)
-
-    return einsatzdaten_df
+# =============================================================================
+# --- Script ---
+# =============================================================================
 
 
-def import_csv_as_df(path_to_csv):
-    try:
-        einsatzdaten_df = pd.read_csv(path_to_csv, sep=";", dtype=str)
+def find_earliest_timestamp(df, clock_columns):
+    available_clocks = list(set(clock_columns) & set(df.columns))
 
-        if einsatzdaten_df.empty:
-            raise ValueError("CSV file is empty.")
+    df_clocks = pd.DataFrame()
+    for col in available_clocks:
+        df_clocks[col] = pd.to_datetime(df[col], format="%Y%m%d%H%M%S", errors="coerce")
 
-    except FileNotFoundError:
-        raise
-    except pd.errors.EmptyDataError:
-        raise
-    except Exception as e:
-        raise Exception(f"Error reading CSV: {e}")
-
-    return einsatzdaten_df
-
-
-def check_df_for_mandatory_columns(einsatzdaten_df, mandatory_columns):
-    mandatory_columns = ["einsatznummer", "einsatzart", "einsatzstichwort"]
-    missing_cols = []
-    for col in mandatory_columns:
-        if col not in einsatzdaten_df.columns:
-            missing_cols.append(col)
-
-    if missing_cols:
-        raise ValueError(f"Missing mandatory columns: {', '.join(missing_cols)}")
-
-
-def confirm_clock_values(einsatzdaten_df):
-    # Check if one of the clock values is on each row
-    clock_columns = [
-        "uhr_erstes_klingeln",
-        "uhr_annahme",
-        "uhr3",
-        "uhr4",
-        "uhr7",
-        "uhr8",
-        "uhr1",
-        "uhr2",
-    ]
-
-    available_clock_cols = [
-        col for col in clock_columns if col in einsatzdaten_df.columns
-    ]
-
-    if not available_clock_cols:
-        raise ValueError(
-            "No clock columns found in the CSV. At least one is required from the list."
-        )
-
-    clock_df_subset = einsatzdaten_df[available_clock_cols]
-
-    missing_all_clocks = clock_df_subset.replace("", pd.NA).isna().all(axis=1)
-
-    # Remove rows, there all clock
-    if missing_all_clocks.any():
-        num_bad_rows = missing_all_clocks.sum()
-        first_bad_row_index = missing_all_clocks.idxmax()
-        first_bad_row_number = first_bad_row_index + 1
-
-        print(
-            f"Found and removed {num_bad_rows} rows (starting from row {first_bad_row_number}) "
-            "that were missing all available clock columns."
-        )
-        einsatzdaten_df = einsatzdaten_df[~missing_all_clocks].reset_index(drop=True)
-
-    return einsatzdaten_df
-
-
-def validate_einsatzdaten(einsatzdaten_df):
-    dict_column_pattern = {
-        "einsatznummer": r"^1(2[3-9]|[3-9]\d)0\d{6}$",
-        "einsatzart": r"^(A\d{2}|[AFHKLNPTUÜ])$",
-        "uhr_erstes_klingeln": r"^\d{14}$",
-        "uhr_annahme": r"^\d{14}$",
-        "einsatzort_hausnummer": r"^\d+$",
-        "zielort_hausnummer": r"^\d+$",
-        "typ": r"^(KTW|RWT|NEF|LNA|LF|HLF|KLF|GW|LF|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW)$",
-        "uhralarm": r"^\d{14}$",
-        "uhr3": r"^\d{14}$",
-        "uhr4": r"^\d{14}$",
-        "uhr7": r"^\d{14}$",
-        "uhr8": r"^\d{14}$",
-        "uhr1": r"^\d{14}$",
-        "uhr2": r"^\d{14}$",
-    }
-    for col, pattern in dict_column_pattern.items():
-        if col in einsatzdaten_df.columns:
-            matched_column = (
-                einsatzdaten_df[col]
-                .astype(str)
-                .apply(
-                    lambda x: (
-                        re.search(pattern, x).group(0)
-                        if re.search(pattern, x)
-                        else None
-                    )
-                )
-            )
-            # TODO: What to do if value not matching
-            if len(matched_column) != len(einsatzdaten_df[col]):
-                raise SystemExit(f"Value {col} does not match pattern {pattern}")
-
-
-def find_earliest_timestamp(df):
-    clock_columns = [
-        "uhr_erstes_klingeln",
-        "uhr_annahme",
-        "uhr3",
-        "uhr4",
-        "uhr7",
-        "uhr8",
-        "uhr1",
-        "uhr2",
-    ]
-    df_clocks = df[clock_columns].astype("datetime64[ns]")
-    df["_metadata_start_date"] = df_clocks.min(axis=1).apply(
-        lambda x: x.strftime("%Y%m%d%H%M%S") if pd.notna(x) else None
-    )
+    min_timestamps = df_clocks.min(axis=1)
+    df["_metadata_start_date"] = min_timestamps.dt.strftime("%Y%m%d%H%M%S")
     return df
 
 
-def assign_instance_nummer(einsatzdaten_df):
-    einsatzdaten_df["_metadata_start_date"] = pd.to_datetime(
-        einsatzdaten_df["_metadata_start_date"]
-    )
-    einsatzdaten_df = einsatzdaten_df.sort_values(
-        ["einsatznummer", "_metadata_start_date"]
-    )
-    einsatzdaten_df["_metadata_instance_num"] = (
-        einsatzdaten_df.groupby("einsatznummer").cumcount() + 1
-    )
-    return einsatzdaten_df
+def assign_instance_nummer(df, encounter_col, start_date_col):
+    df[start_date_col] = pd.to_datetime(df[start_date_col])
+    df = df.sort_values([encounter_col, start_date_col])
+
+    instance_num_col = CONFIG["i2b2_key_columns"]["instance_num"]
+    df[instance_num_col] = df.groupby(encounter_col).cumcount() + 1
+    return df
 
 
-def tval_transform(row, value, concept_cd):
+def tval_transform(row, instruction, key_cols_map):
+    value = row.get(instruction["source_col"])
     if pd.isna(value) or value == "":
         return None
-    base = base_i2b2_row(row)
+
+    base = base_i2b2_row(row, key_cols_map)
     base.update(
         {
-            "concept_cd": concept_cd,
+            "concept_cd": instruction["concept_cd"],
             "valtype": "T",
             "tval_char": value,
         }
@@ -213,9 +293,16 @@ def tval_transform(row, value, concept_cd):
     return base
 
 
-def code_transform(row, type, code):
-    base = base_i2b2_row(row)
-    concept_cd = f"AS:{type}" if code is None else f"AS:{type}:{code}"
+def code_transform(row, instruction, key_cols_map):
+    code = row.get(instruction["source_col"]) if instruction["source_col"] else None
+    concept_cd_base = instruction["concept_cd_base"]
+
+    base = base_i2b2_row(row, key_cols_map)
+    concept_cd = (
+        f"{concept_cd_base}"
+        if (pd.isna(code) or code == "")
+        else f"{concept_cd_base}:{code}"
+    )
     base.update(
         {
             "concept_cd": concept_cd,
@@ -224,12 +311,16 @@ def code_transform(row, type, code):
     return base
 
 
-def cd_transform(row, type, cd, tval_char):
-    base = base_i2b2_row(row)
+def cd_transform(row, instruction, key_cols_map):
+    tval_char = row.get(instruction["source_col"])
+    if pd.isna(tval_char) or tval_char == "":
+        return None
+
+    base = base_i2b2_row(row, key_cols_map)
     base.update(
         {
-            "concept_cd": f"AS:{type}",
-            "modifier_cd": cd,
+            "concept_cd": instruction["concept_cd"],
+            "modifier_cd": instruction["modifier_cd"],
             "valtype": "T",
             "tval_char": tval_char,
         }
@@ -237,14 +328,14 @@ def cd_transform(row, type, cd, tval_char):
     return base
 
 
-def base_i2b2_row(row):
+def base_i2b2_row(row, key_cols_map):
     """Build the common structure shared by all transforms."""
     return {
-        "encounter_num": row["einsatznummer"],
-        "patient_num": row["einsatznummer"],
+        "encounter_num": row.get(key_cols_map["encounter_num"]),
+        "patient_num": row.get(key_cols_map["patient_num"]),
         "provider_id": "@",
-        "start_date": row["_metadata_start_date"],
-        "instance_num": row.get("_metadata_instance_num", 1),
+        "start_date": row.get(key_cols_map["start_date"]),
+        "instance_num": row.get(key_cols_map.get("instance_num"), 1),
         "valtype": "",
         "tval_char": "",
         "nval_char": "",
@@ -262,110 +353,30 @@ def base_i2b2_row(row):
     }
 
 
-def transform_einsatzdaten(einsatzdaten_df):
-    # Find the smallest timestamp along rows -> timestamp
-    einsatzdaten_df = find_earliest_timestamp(einsatzdaten_df)
-    # For each row assign appropriate instance_nummer
-    einsatzdaten_df = assign_instance_nummer(einsatzdaten_df)
-
-    transformers = {
-        "einsatznummer": lambda row: tval_transform(row, row["einsatznummer"], "AS:ID"),
-        "einsatzart": lambda row: code_transform(row, "TYPE", row["einsatzart"]),
-        "einsatzstichwort": lambda row: tval_transform(
-            row, row["einsatzstichwort"], "AS:KEYWORD"
-        ),
-        "einsatzstichwort_text": lambda row: tval_transform(
-            row, row["einsatzstichwort"], "AS:KEYWORDTXT"
-        ),
-        "uhr_erstes_klingeln": lambda row: tval_transform(
-            row, row["uhr_erstes_klingeln"], "AS:CLOCK_FIRSTRING"
-        ),
-        "uhr_annahme": lambda row: tval_transform(
-            row, row["uhr_annahme"], "AS:CLOCK_ACCEPT"
-        ),
-        "einsatzort": lambda row: code_transform(row, "LOCATION", None),
-        "einstzort_staat": lambda row: cd_transform(
-            row, "LOCATION", "country", row["einsatzort_staat"]
-        ),
-        "einstzort_bundesland": lambda row: cd_transform(
-            row, "LOCATION", "state", row["einsatzort_bundesland"]
-        ),
-        "einstzort_regierungsbezirk": lambda row: cd_transform(
-            row, "LOCATION", "district", row["einsatzort_regierungsbezirk"]
-        ),
-        "einsatzort_region": lambda row: cd_transform(
-            row, "LOCATION", "region", row["einsatzort_region"]
-        ),
-        "einsatzort_ort": lambda row: cd_transform(
-            row, "LOCATION", "city", row["einsatzort_ort"]
-        ),
-        "einsatzort_ortsteil": lambda row: cd_transform(
-            row, "LOCATION", "suburb", row["einsatzort_ortsteil"]
-        ),
-        "einsatzort_strasse": lambda row: cd_transform(
-            row, "LOCATION", "street", row["einsatzort_strasse"]
-        ),
-        "einsatzort_hausnummer": lambda row: cd_transform(
-            row, "LOCATION", "houseNummer", row["einsatzort_hausnummer"]
-        ),
-        "zielort": lambda row: code_transform(row, "DESTINATION", None),
-        "zielort_staat": lambda row: cd_transform(
-            row, "DESTINATION", "country", row["zielort_staat"]
-        ),
-        "zielort_bundesland": lambda row: cd_transform(
-            row, "DESTINATION", "state", row["zielort_bundesland"]
-        ),
-        "zielort_regierungsbezirk": lambda row: cd_transform(
-            row, "DESTINATION", "district", row["zielort_regierungsbezirk"]
-        ),
-        "zielort_region": lambda row: cd_transform(
-            row, "DESTINATION", "region", row["zielort_region"]
-        ),
-        "zielort_ort": lambda row: cd_transform(
-            row, "DESTINATION", "city", row["zielort_ort"]
-        ),
-        "zielort_ortsteil": lambda row: cd_transform(
-            row, "DESTINATION", "suburb", row["zielort_ortsteil"]
-        ),
-        "zielort_strasse": lambda row: cd_transform(
-            row, "DESTINATION", "street", row["zielort_strasse"]
-        ),
-        "zielort_hausnummer": lambda row: cd_transform(
-            row, "DESTINATION", "houseNummer", row["zielort_hausnummer"]
-        ),
-        "zort_objekt": lambda row: cd_transform(
-            row, "DESTINATION", "site", row["zort_objekt"]
-        ),
-        "diagnose": lambda row: tval_transform(row, row["diagnose"], "AS:DIAGNOSE"),
-        "bemerkung": lambda row: tval_transform(row, row["bemerkung"], "AS:COMMENT"),
-        "name": lambda row: tval_transform(row, row["name"], "AS:RESSOURCENAME"),
-        "typ": lambda row: code_transform(row, "RESSOURCETYPE", row["typ"]),
-        "uhralarm": lambda row: tval_transform(row, row["uhralarm"], "AS:CLOCK_ALERT"),
-        "uhr3": lambda row: tval_transform(row, row["uhr3"], "AS:CLOCK3"),
-        "uhr4": lambda row: tval_transform(row, row["uhr4"], "AS:CLOCK4"),
-        "uhr7": lambda row: tval_transform(row, row["uhr7"], "AS:CLOCK7"),
-        "uhr8": lambda row: tval_transform(row, row["uhr8"], "AS:CLOCK8"),
-        "uhr1": lambda row: tval_transform(row, row["uhr1"], "AS:CLOCK1"),
-        "uhr2": lambda row: tval_transform(row, row["uhr2"], "AS:CLOCK2"),
-    }
-
-    # Transform
-    i2b2_df = dataframe_to_i2b2(einsatzdaten_df, transformers)
-    print()
+TRANSFORM_DISPATCHER = {
+    "tval": tval_transform,
+    "code": code_transform,
+    "cd": cd_transform,
+}
 
 
-def dataframe_to_i2b2(df, transformers):
+def dataframe_to_i2b2(df, instructions_list, key_cols_map):
     results = []
     for _, row in df.iterrows():
-        for func in transformers.values():
-            transformed = func(row)
+        for instruction in instructions_list:
+            transform_func = TRANSFORM_DISPATCHER.get(instruction["transform_type"])
+
+            if not transform_func:
+                log.warning(f"Unknown transform_type: {instruction['transform_type']}")
+                continue
+
+            transformed = transform_func(row, instruction, key_cols_map)
             if transformed:
-                results.append(func(row))
+                results.append(transformed)
     return pd.DataFrame(results)
 
 
-def main(zip_path):
-    # Extract zip files in tmp folder
+def extract_zip(zip_path):
     zip_path = Path(zip_path)
     if not zip_path.is_file():
         raise FileNotFoundError(f"Error: file {zip_path} does not exist")
@@ -375,29 +386,160 @@ def main(zip_path):
 
     try:
         extract_dir.mkdir(parents=True, exist_ok=True)
-
         with zipfile.ZipFile(zip_path, "r") as zip_file:
+            log.info(f"Extracting {zip_path} to {extract_dir}...")
             zip_file.extractall(extract_dir)
     except zipfile.BadZipFile as e:
         raise RuntimeError(f"Error: file {zip_path} does not contain a zip file") from e
     except Exception as e:
         raise RuntimeError(f"Error: an unexpected error occurred") from e
 
-    # Check csv files
-    einsatzdaten_df = check_and_preprocess_csv_einsatzdaten(
-        extract_dir / "einsatzdaten.csv"
-    )
+    return extract_dir
 
-    # Validate dataframes
-    validate_einsatzdaten(einsatzdaten_df)
 
-    # Transform data for i2b2 format
-    dict_dict_row = transform_einsatzdaten(einsatzdaten_df)
-    print()
-    # Load in database
+def main(zip_path):
+    log.info(f"Starting import for {zip_path}")
+    extract_dir = extract_zip(zip_path)
+
+    for file_key, file_config in CONFIG["files"].items():
+        filename = file_config["filename"]
+        log.info(f"Processing file: {filename}...")
+
+        file_path = extract_dir / filename
+
+        df = extract(file_path)
+        df = preprocess(df, file_config)
+        validate_dataframe(df, file_config["regex_patterns"])
+
+        transformed_i2b2_data = transform_dataframe(df, file_config)
+
+        log.info(f"Loading {len(transformed_i2b2_data)} i2b2 facts...")
+        load(transformed_i2b2_data)
+        log.info(f"Successfully loaded data for {filename}.")
+
+
+def extract(filepath):
+    try:
+        einsatzdaten_df = pd.read_csv(filepath, sep=";", dtype=str)
+
+        if einsatzdaten_df.empty:
+            raise ValueError("CSV file is empty.")
+
+    except FileNotFoundError:
+        raise
+    except pd.errors.EmptyDataError:
+        raise
+    except Exception as e:
+        raise Exception(f"Error reading CSV: {e}")
+
+    return einsatzdaten_df
+
+
+def preprocess(df, file_config):
+    check_df_for_mandatory_columns(df, file_config["mandatory_columns"])
+
+    if file_config.get("integer_cleanup_columns"):
+        log.info(f"Cleaning integer columns: {file_config['integer_cleanup_columns']}")
+        df = clean_integer_strings(df, file_config["integer_cleanup_columns"])
+
+    df = check_clock_values(df, file_config["clock_columns"])
+
+    return df
+
+
+def check_df_for_mandatory_columns(df, mandatory_columns):
+    missing_cols = set(mandatory_columns) - set(df.columns)
+    if missing_cols:
+        raise ValueError(f"Missing mandatory columns: {', '.join(missing_cols)}")
+
+
+def check_clock_values(df, clock_columns):
+    available_clock_cols = [col for col in clock_columns if col in df.columns]
+
+    clock_df_subset = df[available_clock_cols]
+    missing_all_clocks = clock_df_subset.replace("", pd.NA).isna().all(axis=1)
+
+    if missing_all_clocks.any():
+        num_bad_rows = missing_all_clocks.sum()
+        first_bad_row_index = missing_all_clocks.idxmax()
+        first_bad_row_number = first_bad_row_index + 1
+
+        log.warning(
+            f"Found and removed {num_bad_rows} rows (starting from row {first_bad_row_number}) "
+            "that were missing all available clock columns."
+        )
+        df = df[~missing_all_clocks].reset_index(drop=True)
+
+    return df
+
+
+def clean_integer_strings(df, cols_to_clean):
+    for col in cols_to_clean:
+        if col in df.columns:
+            df[col] = (
+                df[col]
+                .astype(str)
+                .apply(lambda x: re.split(r"[,\.]", x)[0])
+                .replace("nan", "")
+            )
+    return df
+
+
+def validate_dataframe(df, regex_patterns):
+    for col, pattern in regex_patterns.items():
+        if col in df.columns:
+            series_to_check = df[col].fillna("").astype(str)
+
+            is_empty = series_to_check == ""
+
+            matches_pattern = series_to_check.str.match(pattern, na=False)
+
+            is_valid = is_empty | matches_pattern
+
+            if not is_valid.all():
+                bad_rows_mask = ~is_valid
+                bad_rows = df[bad_rows_mask]
+
+                num_bad_rows = len(bad_rows)
+                first_bad_val = bad_rows.iloc[0][col]
+
+                log.error(
+                    f"Validation failed for column '{col}'. Found {num_bad_rows} "
+                    f"non-matching, non-empty rows. Example: '{first_bad_val}'"
+                )
+                raise ValueError(f"Validation failed for column '{col}'.")
+
+
+def transform_dataframe(df, file_config):
+    key_cols = CONFIG["i2b2_key_columns"]
+    transform_list = CONFIG["i2b2_transforms"]
+
+    clock_cols = file_config["clock_columns"]
+
+    df = find_earliest_timestamp(df, clock_cols)
+    df = assign_instance_nummer(df, key_cols["encounter_num"], key_cols["start_date"])
+
+    return dataframe_to_i2b2(df, transform_list, key_cols)
+
+
+def load(transformed_df):
+    pass
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python rd-import.py <zip-file>")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler("rd-import.log"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+    # BUG FIX: Define the logger object
+    log = logging.getLogger(__name__)
+
     main(sys.argv[1])
