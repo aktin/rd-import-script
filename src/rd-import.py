@@ -10,6 +10,7 @@ import tempfile
 import zipfile
 import logging
 import sys
+import os
 from pathlib import Path
 from functools import partial
 
@@ -113,6 +114,11 @@ CONFIG = {
             "concept_cd": "AS:RESSOURCENAME",
         },
         {
+            "source_col": "typ",
+            "transform_type": "tval",
+            "concept_cd_base": "AS:RESSOURCETYPE",
+        },
+        {
             "source_col": "uhralarm",
             "transform_type": "tval",
             "concept_cd": "AS:CLOCK_ALERT",
@@ -152,11 +158,6 @@ CONFIG = {
             "source_col": "einsatzart",
             "transform_type": "code",
             "concept_cd_base": "AS:TYPE",
-        },
-        {
-            "source_col": "typ",
-            "transform_type": "code",
-            "concept_cd_base": "AS:RESSOURCETYPE",
         },
         {
             "source_col": None,
@@ -692,6 +693,8 @@ def load(transformed_df):
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python rd-import.py <zip-file>")
+    
+    if
 
     logging.basicConfig(
         level=logging.INFO,
