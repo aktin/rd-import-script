@@ -242,6 +242,24 @@ CONFIG = {
             "concept_cd": "AS:DESTINATION",
             "modifier_cd": "houseNummer",
         },
+        # Metadata
+        {
+            "source_col": None,
+            "transform_type": "code",
+            "concept_cd_base": "AS:SCRIPT",
+        },
+        {
+            "source_col": None,
+            "transform_type": "metadata_cd",
+            "concept_cd": "AS:SCRIPT",
+            "modifier_cd": "scriptId",
+        },
+        {
+            "source_col": None,
+            "transform_type": "metadata_cd",
+            "concept_cd": "AS:SCRIPT",
+            "modifier_cd": "scriptVersion",
+        },
     ],
 }
 
@@ -351,7 +369,7 @@ def code_transform(row, instruction, key_cols_map):
 
 def cd_transform(row, instruction, key_cols_map):
     """
-    Transform a row into a 'cd' i2b2 observation (concept + modifier).
+    Transform a row into a 'cd' i2b2 observation (concept + modifier). Handle metadata.
 
     Args:
         row: Data row.
@@ -372,6 +390,35 @@ def cd_transform(row, instruction, key_cols_map):
             "modifier_cd": instruction["modifier_cd"],
             "valtype": "T",
             "tval_char": tval_char,
+        }
+    )
+    return base
+
+
+def metadata_cd_transform(row, instruction, key_cols_map):
+    """
+    Generates a 'cd' observation from environment variables,
+    but attaches it to the current row's encounter.
+    """
+    if instruction["modifier_cd"] == "scriptId":
+        value = os.getenv("uuid")
+    elif instruction["modifier_cd"] == "scriptVersion":
+        value = os.getenv("script_version")
+    else:
+        log.warning(f"Unknown metadata modifier: {instruction['modifier_cd']}")
+        return None
+
+    if not value:
+        log.warning(f"Environment variable for {instruction['modifier_cd']} not set.")
+        return None
+
+    base = base_i2b2_row(row, key_cols_map)
+    base.update(
+        {
+            "concept_cd": instruction["concept_cd"],
+            "modifier_cd": instruction["modifier_cd"],
+            "valtype": "T",
+            "tval_char": value,
         }
     )
     return base
@@ -415,6 +462,7 @@ TRANSFORM_DISPATCHER = {
     "tval": tval_transform,
     "code": code_transform,
     "cd": cd_transform,
+    "metadata_cd": metadata_cd_transform,
 }
 
 
@@ -503,6 +551,9 @@ def main(zip_path):
 
         log.info(f"Loading {len(transformed_i2b2_data)} i2b2 facts...")
         load(transformed_i2b2_data)
+        # Test
+        transformed_i2b2_data.to_csv("test.csv")
+
         log.info(f"Successfully loaded data for {filename}.")
 
 
