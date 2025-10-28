@@ -116,7 +116,7 @@ CONFIG = {
         {
             "source_col": "typ",
             "transform_type": "tval",
-            "concept_cd_base": "AS:RESSOURCETYPE",
+            "concept_cd": "AS:RESSOURCETYPE",
         },
         {
             "source_col": "uhralarm",
