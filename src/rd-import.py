@@ -16,23 +16,16 @@ from functools import partial
 import pandas as pd
 
 
-#
-#      Copyright (c) 2025  Alexander Ivanets, Markus Nissen
-#
-#      This program is free software: you can redistribute it and/or modify
-#      it under the terms of the GNU Affero General Public License as
-#      published by the Free Software Foundation, either version 3 of the
-#      License, or (at your option) any later version.
-#
-#      This program is distributed in the hope that it will be useful,
-#      but WITHOUT ANY WARRANTY; without even the implied warranty of
-#      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#      GNU Affero General Public License for more details.
-#
-#      You should have received a copy of the GNU Affero General Public License
-#      along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-#
+"""
+Rettungsdienst Import Script
+
+This script processes zipped Rettungsdienst (emergency service) data,
+validates CSV files, transforms them into i2b2-compatible format, and loads
+the resulting dataset. It is designed to support AKTIN-style data imports.
+
+Authors: Alexander Ivanets, Markus Nissen
+License: GNU Affero General Public License v3.0
+"""
 
 # =============================================================================
 # --- CONFIGURATION ---
@@ -257,6 +250,17 @@ CONFIG = {
 
 
 def find_earliest_timestamp(df, clock_columns):
+    """
+    Determine the earliest timestamp for each row from all available clock columns in a DataFrame.
+
+    Args:
+        df: Input DataFrame containing time columns.
+        clock_columns: List of column names representing timestamps.
+
+    Returns:
+        DataFrame with an additional column `_metadata_start_date` containing
+        the earliest timestamp per row.
+    """
     available_clocks = list(set(clock_columns) & set(df.columns))
 
     df_clocks = pd.DataFrame()
@@ -269,6 +273,17 @@ def find_earliest_timestamp(df, clock_columns):
 
 
 def assign_instance_nummer(df, encounter_col, start_date_col):
+    """
+    Assign sequential instance numbers to encounters based on start time.
+
+    Args:
+        df: Input DataFrame.
+        encounter_col: Column name representing encounter ID.
+        start_date_col: Column name representing start date.
+
+    Returns:
+        DataFrame with a new column for instance numbering.
+    """
     df[start_date_col] = pd.to_datetime(df[start_date_col])
     df = df.sort_values([encounter_col, start_date_col])
 
@@ -278,6 +293,17 @@ def assign_instance_nummer(df, encounter_col, start_date_col):
 
 
 def tval_transform(row, instruction, key_cols_map):
+    """
+    Transform a single row into a 'tval' i2b2 observation.
+
+    Args:
+        row: Input data row.
+        instruction: Transformation instruction dict.
+        key_cols_map: Mapping of i2b2 key columns.
+
+    Returns:
+        Dictionary for an i2b2 tval observation, or None if no value.
+    """
     value = row.get(instruction["source_col"])
     if pd.isna(value) or value == "":
         return None
@@ -294,6 +320,17 @@ def tval_transform(row, instruction, key_cols_map):
 
 
 def code_transform(row, instruction, key_cols_map):
+    """
+    Transform a row into a 'code' i2b2 observation.
+
+    Args:
+        row: Data row.
+        instruction: Transformation instruction dict.
+        key_cols_map: Mapping of i2b2 key columns.
+
+    Returns:
+        i2b2 observation dictionary.
+    """
     code = row.get(instruction["source_col"]) if instruction["source_col"] else None
     concept_cd_base = instruction["concept_cd_base"]
 
@@ -312,6 +349,17 @@ def code_transform(row, instruction, key_cols_map):
 
 
 def cd_transform(row, instruction, key_cols_map):
+    """
+    Transform a row into a 'cd' i2b2 observation (concept + modifier).
+
+    Args:
+        row: Data row.
+        instruction: Transformation instruction dict.
+        key_cols_map: Mapping of i2b2 key columns.
+
+    Returns:
+        i2b2 observation dictionary or None.
+    """
     tval_char = row.get(instruction["source_col"])
     if pd.isna(tval_char) or tval_char == "":
         return None
@@ -329,7 +377,16 @@ def cd_transform(row, instruction, key_cols_map):
 
 
 def base_i2b2_row(row, key_cols_map):
-    """Build the common structure shared by all transforms."""
+    """
+    Construct a base i2b2 observation row structure.
+
+    Args:
+        row: Source pandas row.
+        key_cols_map: Mapping of i2b2 key column names to source columns.
+
+    Returns:
+        Dictionary representing an i2b2 base observation row.
+    """
     return {
         "encounter_num": row.get(key_cols_map["encounter_num"]),
         "patient_num": row.get(key_cols_map["patient_num"]),
@@ -361,6 +418,17 @@ TRANSFORM_DISPATCHER = {
 
 
 def dataframe_to_i2b2(df, instructions_list, key_cols_map):
+    """
+    Apply transformation instructions to all rows in a DataFrame.
+
+    Args:
+        df: Input DataFrame.
+        instructions_list: List of transformation instruction dicts.
+        key_cols_map: Mapping of i2b2 key columns.
+
+    Returns:
+        Transformed DataFrame containing i2b2 facts.
+    """
     results = []
     for _, row in df.iterrows():
         for instruction in instructions_list:
@@ -377,6 +445,19 @@ def dataframe_to_i2b2(df, instructions_list, key_cols_map):
 
 
 def extract_zip(zip_path):
+    """
+    Extract a ZIP file into a temporary directory.
+
+    Args:
+        zip_path: Path to ZIP file.
+
+    Returns:
+        Path to the extraction directory.
+
+    Raises:
+        FileNotFoundError: If file does not exist.
+        RuntimeError: If extraction fails.
+    """
     zip_path = Path(zip_path)
     if not zip_path.is_file():
         raise FileNotFoundError(f"Error: file {zip_path} does not exist")
@@ -398,6 +479,12 @@ def extract_zip(zip_path):
 
 
 def main(zip_path):
+    """
+    Main entry point for the import process.
+
+    Args:
+        zip_path: Path to ZIP file containing Rettungsdienst data.
+    """
     log.info(f"Starting import for {zip_path}")
     extract_dir = extract_zip(zip_path)
 
@@ -419,6 +506,18 @@ def main(zip_path):
 
 
 def extract(filepath):
+    """
+    Read a CSV file into a DataFrame.
+
+    Args:
+        filepath: Path to the CSV file.
+
+    Returns:
+        DataFrame with CSV contents.
+
+    Raises:
+        ValueError: If the file is empty.
+    """
     try:
         einsatzdaten_df = pd.read_csv(filepath, sep=";", dtype=str)
 
@@ -436,6 +535,20 @@ def extract(filepath):
 
 
 def preprocess(df, file_config):
+    """
+    Preprocess input DataFrame before transformation.
+
+    - Checks mandatory columns.
+    - Cleans integer-like columns.
+    - Removes rows missing all clock values.
+
+    Args:
+        df: Input DataFrame.
+        file_config: File configuration dict.
+
+    Returns:
+        Cleaned DataFrame.
+    """
     check_df_for_mandatory_columns(df, file_config["mandatory_columns"])
 
     if file_config.get("integer_cleanup_columns"):
@@ -448,12 +561,32 @@ def preprocess(df, file_config):
 
 
 def check_df_for_mandatory_columns(df, mandatory_columns):
+    """
+    Ensure mandatory columns are present in DataFrame.
+
+    Args:
+        df: DataFrame to check.
+        mandatory_columns: List of required column names.
+
+    Raises:
+        ValueError: If any columns are missing.
+    """
     missing_cols = set(mandatory_columns) - set(df.columns)
     if missing_cols:
         raise ValueError(f"Missing mandatory columns: {', '.join(missing_cols)}")
 
 
 def check_clock_values(df, clock_columns):
+    """
+    Remove rows missing all clock columns.
+
+    Args:
+        df: Input DataFrame.
+        clock_columns: List of time columns to check.
+
+    Returns:
+        Filtered DataFrame.
+    """
     available_clock_cols = [col for col in clock_columns if col in df.columns]
 
     clock_df_subset = df[available_clock_cols]
@@ -474,6 +607,16 @@ def check_clock_values(df, clock_columns):
 
 
 def clean_integer_strings(df, cols_to_clean):
+    """
+    Clean numeric strings by removing decimal separators and text.
+
+    Args:
+        df: Input DataFrame.
+        cols_to_clean: List of column names to clean.
+
+    Returns:
+        Cleaned DataFrame.
+    """
     for col in cols_to_clean:
         if col in df.columns:
             df[col] = (
@@ -486,6 +629,16 @@ def clean_integer_strings(df, cols_to_clean):
 
 
 def validate_dataframe(df, regex_patterns):
+    """
+    Validate DataFrame columns against regex patterns.
+
+    Args:
+        df: Input DataFrame.
+        regex_patterns: Dict of column names to regex patterns.
+
+    Raises:
+        ValueError: If validation fails for any column.
+    """
     for col, pattern in regex_patterns.items():
         if col in df.columns:
             series_to_check = df[col].fillna("").astype(str)
@@ -511,6 +664,16 @@ def validate_dataframe(df, regex_patterns):
 
 
 def transform_dataframe(df, file_config):
+    """
+    Apply all transformation steps to convert DataFrame into i2b2 format.
+
+    Args:
+        df: Cleaned input DataFrame.
+        file_config: File configuration dict.
+
+    Returns:
+        Transformed i2b2 DataFrame.
+    """
     key_cols = CONFIG["i2b2_key_columns"]
     transform_list = CONFIG["i2b2_transforms"]
 
