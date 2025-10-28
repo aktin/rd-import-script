@@ -690,11 +690,43 @@ def load(transformed_df):
     pass
 
 
+# For testing purposes
+def load_env():
+    """
+    Loads environment variables from a .env file if it exists.
+    This is a basic parser and doesn't handle all .env syntax.
+    """
+    env_path = ".env"
+    if os.path.exists(env_path):
+        print(f"Info: Found '{env_path}' file, loading environment variables.")
+        try:
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+
+                    parts = line.split("=", 1)
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip()
+
+                        if (value.startswith("'") and value.endswith("'")) or (
+                            value.startswith('"') and value.endswith('"')
+                        ):
+                            value = value[1:-1]
+
+                        os.environ[key] = value
+        except Exception as e:
+            print(f"Warning: Could not parse .env file. Error: {e}", file=sys.stderr)
+
+
 if __name__ == "__main__":
+
+    load_env()
+
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python rd-import.py <zip-file>")
-    
-    if
 
     logging.basicConfig(
         level=logging.INFO,
