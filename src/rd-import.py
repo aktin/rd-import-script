@@ -1,31 +1,46 @@
 # -*- coding: utf-8 -*
-# Created on Wed Oct 22 13:00 2025
+# Created on Wed Okt 15 12:00 2025
 # @VERSION=1.0
 # @VIEWNAME=Rettungsdienst Importscript
 # @MIMETYPE=zip
-# @ID=rd
+# @ID=rd-import-script
+
+"""
+    Copyright (c) 2025  Alexander Ivanets, Markus Nissen
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as
+    published by the Free Software Foundation, either version 3 of the
+    License, or (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+"""
+import logging
+import os
 import re
 import sys
 import tempfile
 import zipfile
-import logging
-import sys
-import os
 from pathlib import Path
-from functools import partial
 
 import pandas as pd
 
-
 """
-Rettungsdienst Import Script
-
-This script processes zipped Rettungsdienst (emergency service) data,
-validates CSV files, transforms them into i2b2-compatible format, and loads
-the resulting dataset. It is designed to support AKTIN-style data imports.
-
-Authors: Alexander Ivanets, Markus Nissen
-License: GNU Affero General Public License v3.0
+    Rettungsdienst Import Script
+    
+    This script processes zipped Rettungsdienst (emergency service) data,
+    validates CSV files, transforms them into i2b2-compatible format, and loads
+    the resulting dataset. It is designed to support AKTIN-style data imports.
+    
+    Authors: Alexander Ivanets, Markus Nissen
+    License: GNU Affero General Public License v3.0
 """
 
 # =============================================================================
@@ -262,6 +277,7 @@ CONFIG = {
         },
     ],
 }
+
 
 # =============================================================================
 # --- Script ---
@@ -767,7 +783,7 @@ def load_env():
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                            value.startswith('"') and value.endswith('"')
+                                value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
