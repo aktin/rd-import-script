@@ -13,9 +13,11 @@ import sys
 import os
 from pathlib import Path
 from functools import partial
-
+import sqlalchemy
 import pandas as pd
-
+import sqlalchemy as db
+from sqlalchemy import exc
+from datetime import datetime
 
 """
 Rettungsdienst Import Script
@@ -738,7 +740,68 @@ def transform_dataframe(df, file_config):
 
 
 def load(transformed_df):
-    pass
+
+    #establish database conncetion
+    USERNAME = os.environ['username']
+    PASSWORD = os.environ['password']
+    I2B2_CONNECTION_URL = os.environ['connection-url']
+    pattern = r'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
+    connection = re.search(pattern, I2B2_CONNECTION_URL).group(1)
+    ENGINE = db.create_engine(f"postgresql+psycopg2://{USERNAME}:{PASSWORD}@{connection}",pool_pre_ping=True)
+    conn = ENGINE.connect()
+    TABLE = db.Table('observation_fact', db.MetaData(), autoload_with=ENGINE)
+
+    #delete existing combinations of encounter_nums/start_date/concept_cd from TABLE
+    transaction = conn.begin()
+    try:
+        unique_combinations = (
+            transformed_df[['encounter_num', 'start_date', 'concept_cd']]
+            .drop_duplicates()
+            .to_dict(orient='records')
+        )
+
+        if unique_combinations:
+            for row in unique_combinations:
+                encounter = row['encounter_num']
+                date_i2b2 = convert_date_to_i2b2_format(str(row['start_date']))
+                concept = row['concept_cd']
+
+                statement = (TABLE.delete()
+                             .where(TABLE.c['encounter_num'] == encounter)
+                             .where(TABLE.c['start_date'] == date_i2b2))
+                statement = statement.where(TABLE.c['concept_cd'] == concept) if concept else statement
+
+                conn.execute(statement)
+
+        transaction.commit()
+    except exc.SQLAlchemyError as e:
+        transaction.rollback()
+
+    #load all dataframe lines into table
+    insert_transaction = conn.begin()
+    try:
+        temp = 100
+        for i in range(0, len(transformed_df), temp):
+            stapel = transformed_df.iloc[i:i + temp]
+            records = stapel.to_dict(orient='records')
+            if records:
+                conn.execute(TABLE.insert(), records)
+                # insert_statement = TABLE.insert().values(records)
+                # conn.execute(insert_statement)
+        insert_transaction.commit()
+    except exc.SQLAlchemyError as e:
+        insert_transaction.rollback()
+        print(e)
+
+    #cut db connection
+    conn.close()
+    ENGINE.dispose()
+
+@staticmethod
+def convert_date_to_i2b2_format(date: str) -> str:
+    if len(date) > 19:
+        date = date[:19]
+    return datetime.strptime(date, '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
 
 
 # For testing purposes
@@ -747,7 +810,7 @@ def load_env():
     Loads environment variables from a .env file if it exists.
     This is a basic parser and doesn't handle all .env syntax.
     """
-    env_path = ".env"
+    env_path = os.path.join("..",".env")
     if os.path.exists(env_path):
         print(f"Info: Found '{env_path}' file, loading environment variables.")
         try:
@@ -775,6 +838,7 @@ def load_env():
 if __name__ == "__main__":
 
     load_env()
+    print(os.environ.get("username"))
 
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python rd-import.py <zip-file>")
