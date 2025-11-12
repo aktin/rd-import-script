@@ -13,9 +13,9 @@ import sys
 import os
 from pathlib import Path
 from functools import partial
-import sqlalchemy
+
 import pandas as pd
-from sqlalchemy.testing import db
+
 
 """
 Rettungsdienst Import Script
@@ -738,10 +738,7 @@ def transform_dataframe(df, file_config):
 
 
 def load(transformed_df):
-    ENGINE: db.engine.Engine = None #TODO change
-    USERNAME = os.environ['username']
-    PASSWORD = os.environ['password']
-    I2B2_CONNECTION_URL = os.environ['connection-url']
+    pass
 
 
 # For testing purposes
@@ -750,7 +747,7 @@ def load_env():
     Loads environment variables from a .env file if it exists.
     This is a basic parser and doesn't handle all .env syntax.
     """
-    env_path = os.path.join("..",".env")
+    env_path = ".env"
     if os.path.exists(env_path):
         print(f"Info: Found '{env_path}' file, loading environment variables.")
         try:
@@ -778,7 +775,6 @@ def load_env():
 if __name__ == "__main__":
 
     load_env()
-    print(os.environ.get("username"))
 
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python rd-import.py <zip-file>")
