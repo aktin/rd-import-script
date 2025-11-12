@@ -452,7 +452,6 @@ def base_i2b2_row(row, key_cols_map):
         "location_cd": "@",
         "observation_blob": "",
         "update_date": "",
-        "download_date": "",
         "import_date": "",
     }
 
@@ -570,9 +569,6 @@ def add_general_i2b2_info(df):
     result_df = df.copy()
     result_df["update_date"] = pd.Timestamp.now()
     result_df["import_date"] = pd.Timestamp.now()
-    # TODO: This is not correct
-    result_df["download_date"] = pd.Timestamp.now()
-    # TODO: Add cd encoding
     result_df["sourcesystem_cd"] = "AS"
     return result_df
 
