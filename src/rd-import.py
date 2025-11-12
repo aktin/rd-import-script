@@ -22,6 +22,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
+import base64
+from datetime import datetime
 import logging
 import os
 import re
@@ -552,6 +554,7 @@ def main(zip_path):
     """
     log.info(f"Starting import for {zip_path}")
     extract_dir = extract_zip(zip_path)
+    zip_base64 = base64.b64encode(open(zip_path, "rb").read())
 
     for _, file_config in CONFIG["files"].items():
         filename = file_config["filename"]
@@ -565,13 +568,33 @@ def main(zip_path):
 
         transformed_i2b2_data = transform_dataframe(df, file_config)
 
+        transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data)
+
+        transformed_i2b2_data = convert_values_to_i2b2_format(transformed_i2b2_data)
+
         log.info(f"Loading {len(transformed_i2b2_data)} i2b2 facts...")
         load(transformed_i2b2_data)
+
         # Test
         transformed_i2b2_data.to_csv("test.csv")
 
         log.info(f"Successfully loaded data for {filename}.")
 
+def convert_values_to_i2b2_format(df):
+    date_columns = ["start_date", "update_date", "import_date"]
+    result_df = df.copy()
+    for column in date_columns:
+        result_df[column] = result_df[column].astype(str).apply(
+            lambda x: datetime.strptime(x[:19], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'))
+    return result_df
+
+def add_general_i2b2_info(df):
+    result_df = df.copy()
+    result_df["update_date"] = pd.Timestamp.now()
+    result_df["import_date"] = pd.Timestamp.now()
+    # TODO: Add cd encoding
+    result_df["source_cd"] = "AS"
+    return result_df
 
 def extract(filepath):
     """
