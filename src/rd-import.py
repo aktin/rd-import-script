@@ -4,20 +4,18 @@
 # @VIEWNAME=Rettungsdienst Importscript
 # @MIMETYPE=zip
 # @ID=rd
+import logging
+import os
 import re
 import sys
 import tempfile
 import zipfile
-import logging
-import sys
-import os
+from datetime import datetime
 from pathlib import Path
-from functools import partial
-import sqlalchemy
+
 import pandas as pd
 import sqlalchemy as db
 from sqlalchemy import exc
-from datetime import datetime
 
 """
 Rettungsdienst Import Script
@@ -265,6 +263,7 @@ CONFIG = {
     ],
 }
 
+
 # =============================================================================
 # --- Script ---
 # =============================================================================
@@ -364,6 +363,8 @@ def code_transform(row, instruction, key_cols_map):
     base.update(
         {
             "concept_cd": concept_cd,
+            "valtype": "@",
+            "valueflag_cd": "@"
         }
     )
     return base
@@ -442,21 +443,17 @@ def base_i2b2_row(row, key_cols_map):
         "patient_num": row.get(key_cols_map["patient_num"]),
         "provider_id": "@",
         "start_date": row.get(key_cols_map["start_date"]),
+        "modifier_cd": "@",
         "instance_num": row.get(key_cols_map.get("instance_num"), 1),
         "valtype": "",
         "tval_char": "",
-        "nval_char": "",
         "valueflag_cd": "",
-        "quantity_num": "",
-        "units_cd": "",
-        "end_date": "",
+        "units_cd": "@",
         "location_cd": "@",
         "observation_blob": "",
-        "confidence_num": "",
         "update_date": "",
         "download_date": "",
         "import_date": "",
-        "modifier_cd": "@",
     }
 
 
@@ -551,12 +548,33 @@ def main(zip_path):
 
         transformed_i2b2_data = transform_dataframe(df, file_config)
 
+        transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data)
+        transformed_i2b2_data = convert_values_to_i2b2_format(transformed_i2b2_data)
+
         log.info(f"Loading {len(transformed_i2b2_data)} i2b2 facts...")
-        load(transformed_i2b2_data)
-        # Test
         transformed_i2b2_data.to_csv("test.csv")
 
+        load(transformed_i2b2_data)
+
         log.info(f"Successfully loaded data for {filename}.")
+
+def convert_values_to_i2b2_format(df):
+    date_columns = ["start_date", "update_date", "import_date"]
+    result_df = df.copy()
+    for column in date_columns:
+        result_df[column] = result_df[column].astype(str).apply(
+            lambda x: datetime.strptime(x[:19], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'))
+    return result_df
+
+def add_general_i2b2_info(df):
+    result_df = df.copy()
+    result_df["update_date"] = pd.Timestamp.now()
+    result_df["import_date"] = pd.Timestamp.now()
+    # TODO: This is not correct
+    result_df["download_date"] = pd.Timestamp.now()
+    # TODO: Add cd encoding
+    result_df["sourcesystem_cd"] = "AS"
+    return result_df
 
 
 def extract(filepath):
@@ -740,18 +758,17 @@ def transform_dataframe(df, file_config):
 
 
 def load(transformed_df):
-
-    #establish database conncetion
+    # establish database conncetion
     USERNAME = os.environ['username']
     PASSWORD = os.environ['password']
     I2B2_CONNECTION_URL = os.environ['connection-url']
     pattern = r'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
     connection = re.search(pattern, I2B2_CONNECTION_URL).group(1)
-    ENGINE = db.create_engine(f"postgresql+psycopg2://{USERNAME}:{PASSWORD}@{connection}",pool_pre_ping=True)
+    ENGINE = db.create_engine(f"postgresql+psycopg2://{USERNAME}:{PASSWORD}@{connection}", pool_pre_ping=True)
     conn = ENGINE.connect()
     TABLE = db.Table('observation_fact', db.MetaData(), autoload_with=ENGINE)
 
-    #delete existing combinations of encounter_nums/start_date/concept_cd from TABLE
+    # delete existing combinations of encounter_nums/start_date/concept_cd from TABLE
     transaction = conn.begin()
     try:
         unique_combinations = (
@@ -777,7 +794,7 @@ def load(transformed_df):
     except exc.SQLAlchemyError as e:
         transaction.rollback()
 
-    #load all dataframe lines into table
+    # load all dataframe lines into table
     insert_transaction = conn.begin()
     try:
         temp = 100
@@ -793,9 +810,10 @@ def load(transformed_df):
         insert_transaction.rollback()
         print(e)
 
-    #cut db connection
+    # cut db connection
     conn.close()
     ENGINE.dispose()
+
 
 @staticmethod
 def convert_date_to_i2b2_format(date: str) -> str:
@@ -810,7 +828,7 @@ def load_env():
     Loads environment variables from a .env file if it exists.
     This is a basic parser and doesn't handle all .env syntax.
     """
-    env_path = os.path.join("..",".env")
+    env_path = os.path.join("..", ".env")
     if os.path.exists(env_path):
         print(f"Info: Found '{env_path}' file, loading environment variables.")
         try:
@@ -826,7 +844,7 @@ def load_env():
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                            value.startswith('"') and value.endswith('"')
+                                value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
