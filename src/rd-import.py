@@ -4,6 +4,8 @@
 # @VIEWNAME=Rettungsdienst Importscript
 # @MIMETYPE=zip
 # @ID=rd
+import base64
+import hashlib
 import logging
 import os
 import re
@@ -452,7 +454,6 @@ def base_i2b2_row(row, key_cols_map):
         "location_cd": "@",
         "observation_blob": "",
         "update_date": "",
-        "download_date": "",
         "import_date": "",
     }
 
@@ -526,6 +527,45 @@ def extract_zip(zip_path):
     return extract_dir
 
 
+def get_sourcesystem_cd_from_zip(filepath, prefix="AS:"):
+    """
+    Calculates the SHA-256 hash of a file, encodes it in
+    URL-safe Base64, and prepends the given prefix.
+
+    This format is secure and fits within a VARCHAR(50) field.
+    (3-char prefix + 44-char hash = 47 chars)
+
+    Args:
+        filepath (str): The path to the zip file.
+        prefix (str): The custom prefix for your script.
+
+    Returns:
+        str: The formatted sourcesystem_cd string.
+    """
+
+    sha256_hash = hashlib.sha256()
+
+    try:
+        with open(filepath, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096 * 1024), b""):
+                sha256_hash.update(byte_block)
+
+        hash_bytes = sha256_hash.digest()
+        base64_hash_bytes = base64.urlsafe_b64encode(hash_bytes)
+        base64_hash_str = base64_hash_bytes.decode('utf-8')
+        final_hash = base64_hash_str.rstrip('=')
+        final_sourcesystem_cd = f"{prefix}{final_hash}"
+
+        return final_sourcesystem_cd
+
+    except FileNotFoundError:
+        print(f"ERROR: File not found at {filepath}")
+        return None
+    except Exception as e:
+        print(f"An error occurred during hashing: {e}")
+        return None
+
+
 def main(zip_path):
     """
     Main entry point for the import process.
@@ -535,6 +575,7 @@ def main(zip_path):
     """
     log.info(f"Starting import for {zip_path}")
     extract_dir = extract_zip(zip_path)
+    sourcesystem_cd = get_sourcesystem_cd_from_zip(zip_path)
 
     for _, file_config in CONFIG["files"].items():
         filename = file_config["filename"]
@@ -548,7 +589,7 @@ def main(zip_path):
 
         transformed_i2b2_data = transform_dataframe(df, file_config)
 
-        transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data)
+        transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data, zip_path)
         transformed_i2b2_data = convert_values_to_i2b2_format(transformed_i2b2_data)
 
         log.info(f"Loading {len(transformed_i2b2_data)} i2b2 facts...")
@@ -566,14 +607,11 @@ def convert_values_to_i2b2_format(df):
             lambda x: datetime.strptime(x[:19], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'))
     return result_df
 
-def add_general_i2b2_info(df):
+def add_general_i2b2_info(df, zip_path):
     result_df = df.copy()
     result_df["update_date"] = pd.Timestamp.now()
     result_df["import_date"] = pd.Timestamp.now()
-    # TODO: This is not correct
-    result_df["download_date"] = pd.Timestamp.now()
-    # TODO: Add cd encoding
-    result_df["sourcesystem_cd"] = "AS"
+    result_df["sourcesystem_cd"] = get_sourcesystem_cd_from_zip(zip_path)
     return result_df
 
 
