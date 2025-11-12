@@ -768,7 +768,17 @@ def load(transformed_df):
     conn = ENGINE.connect()
     TABLE = db.Table('observation_fact', db.MetaData(), autoload_with=ENGINE)
 
-    # delete existing combinations of encounter_nums/start_date/concept_cd from TABLE
+    delete_from_db(conn, TABLE, transformed_df)
+    upload_into_db(conn, TABLE, transformed_df)
+
+    # cut db connection
+    conn.close()
+    ENGINE.dispose()
+
+def delete_from_db(conn, TABLE, transformed_df):
+    """
+    delete existing combinations of encounter_nums/start_date/concept_cd from TABLE
+    """
     transaction = conn.begin()
     try:
         unique_combinations = (
@@ -794,7 +804,10 @@ def load(transformed_df):
     except exc.SQLAlchemyError as e:
         transaction.rollback()
 
-    # load all dataframe lines into table
+def upload_into_db(conn, TABLE, transformed_df):
+    """
+    load all dataframe lines into table
+    """
     insert_transaction = conn.begin()
     try:
         temp = 100
@@ -803,19 +816,10 @@ def load(transformed_df):
             records = stapel.to_dict(orient='records')
             if records:
                 conn.execute(TABLE.insert(), records)
-                # insert_statement = TABLE.insert().values(records)
-                # conn.execute(insert_statement)
         insert_transaction.commit()
     except exc.SQLAlchemyError as e:
         insert_transaction.rollback()
-        print(e)
 
-    # cut db connection
-    conn.close()
-    ENGINE.dispose()
-
-
-@staticmethod
 def convert_date_to_i2b2_format(date: str) -> str:
     if len(date) > 19:
         date = date[:19]
