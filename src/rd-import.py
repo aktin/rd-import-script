@@ -918,7 +918,6 @@ def load_env():
 if __name__ == "__main__":
 
     load_env()
-    print(os.environ.get("username"))
 
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python rd-import.py <zip-file>")
