@@ -593,8 +593,6 @@ def main(zip_path):
         transformed_i2b2_data = convert_values_to_i2b2_format(transformed_i2b2_data)
 
         log.info(f"Loading {len(transformed_i2b2_data)} i2b2 facts...")
-        transformed_i2b2_data.to_csv("test.csv")
-
         load(transformed_i2b2_data)
 
         log.info(f"Successfully loaded data for {filename}.")
