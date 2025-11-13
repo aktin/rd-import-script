@@ -285,12 +285,16 @@ def find_earliest_timestamp(df, clock_columns):
     """
     available_clocks = list(set(clock_columns) & set(df.columns))
 
-    df_clocks = pd.DataFrame()
-    for col in available_clocks:
-        df_clocks[col] = pd.to_datetime(df[col], format="%Y%m%d%H%M%S", errors="coerce")
+    min_timestamps = (
+        df[available_clocks]
+        .apply(lambda col: pd.to_datetime(col, format="%Y%m%d%H%M%S", errors="coerce"))
+        .min(axis=1)
+    )
 
-    min_timestamps = df_clocks.min(axis=1)
     df["_metadata_start_date"] = min_timestamps.dt.strftime("%Y%m%d%H%M%S")
+
+    df["_metadata_start_date"] = df["_metadata_start_date"].replace("NaT", None)
+
     return df
 
 
@@ -473,7 +477,6 @@ def dataframe_to_i2b2(df, instructions_list, key_cols_map):
         Transformed DataFrame containing i2b2 facts.
     """
     results = []
-    field_map = {f"_{i}": col for i, col in enumerate(df.columns)}
     for row in df.itertuples(index=False):
         row_dict = dict(zip(df.columns, row))
 
@@ -488,7 +491,6 @@ def dataframe_to_i2b2(df, instructions_list, key_cols_map):
                 results.append(transformed)
 
     return pd.DataFrame(results)
-
 
 
 def extract_zip(zip_path):
