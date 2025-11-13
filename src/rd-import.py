@@ -575,7 +575,6 @@ def main(zip_path):
     """
     log.info(f"Starting import for {zip_path}")
     extract_dir = extract_zip(zip_path)
-    sourcesystem_cd = get_sourcesystem_cd_from_zip(zip_path)
 
     for _, file_config in CONFIG["files"].items():
         filename = file_config["filename"]
