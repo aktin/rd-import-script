@@ -473,18 +473,22 @@ def dataframe_to_i2b2(df, instructions_list, key_cols_map):
         Transformed DataFrame containing i2b2 facts.
     """
     results = []
-    for _, row in df.iterrows():
+    field_map = {f"_{i}": col for i, col in enumerate(df.columns)}
+    for row in df.itertuples(index=False):
+        row_dict = dict(zip(df.columns, row))
+
         for instruction in instructions_list:
             transform_func = TRANSFORM_DISPATCHER.get(instruction["transform_type"])
-
             if not transform_func:
                 log.warning(f"Unknown transform_type: {instruction['transform_type']}")
                 continue
 
-            transformed = transform_func(row, instruction, key_cols_map)
+            transformed = transform_func(row_dict, instruction, key_cols_map)
             if transformed:
                 results.append(transformed)
+
     return pd.DataFrame(results)
+
 
 
 def extract_zip(zip_path):
