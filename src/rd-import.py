@@ -298,7 +298,7 @@ def find_earliest_timestamp(df, clock_columns):
     return df
 
 
-def assign_instance_nummer(df, encounter_col, start_date_col):
+def assign_instance_number(df, encounter_col, start_date_col):
     """
     Assign sequential instance numbers to encounters based on start time.
 
@@ -797,7 +797,7 @@ def transform_dataframe(df, file_config):
     clock_cols = file_config["clock_columns"]
 
     df = find_earliest_timestamp(df, clock_cols)
-    df = assign_instance_nummer(df, key_cols["encounter_num"], key_cols["start_date"])
+    df = assign_instance_number(df, key_cols["encounter_num"], key_cols["start_date"])
 
     return dataframe_to_i2b2(df, transform_list, key_cols)
 
@@ -838,7 +838,9 @@ def delete_from_db(conn, TABLE, transformed_df):
         if unique_combinations:
             for row in unique_combinations:
                 encounter = row["encounter_num"]
-                date_i2b2 = convert_date_to_i2b2_format(str(row["start_date"]))
+                # TODO: Remove function, because already done in previous step
+                # date_i2b2 = convert_date_to_i2b2_format(str(row["start_date"]))
+                date_i2b2 = row["start_date"]
                 concept = row["concept_cd"]
 
                 statement = (
@@ -867,7 +869,7 @@ def upload_into_db(conn, TABLE, transformed_df):
     try:
         temp = 100
         for i in range(0, len(transformed_df), temp):
-            stapel = transformed_df.iloc[i : i + temp]
+            stapel = transformed_df.iloc[i: i + temp]
             records = stapel.to_dict(orient="records")
             if records:
                 conn.execute(TABLE.insert(), records)
@@ -904,7 +906,7 @@ def load_env():
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                            value.startswith('"') and value.endswith('"')
+                                value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
