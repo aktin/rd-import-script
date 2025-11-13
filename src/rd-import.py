@@ -362,13 +362,7 @@ def code_transform(row, instruction, key_cols_map):
         if (pd.isna(code) or code == "")
         else f"{concept_cd_base}:{code}"
     )
-    base.update(
-        {
-            "concept_cd": concept_cd,
-            "valtype": "@",
-            "valueflag_cd": "@"
-        }
-    )
+    base.update({"concept_cd": concept_cd, "valtype": "@", "valueflag_cd": "@"})
     return base
 
 
@@ -552,8 +546,8 @@ def get_sourcesystem_cd_from_zip(filepath, prefix="AS:"):
 
         hash_bytes = sha256_hash.digest()
         base64_hash_bytes = base64.urlsafe_b64encode(hash_bytes)
-        base64_hash_str = base64_hash_bytes.decode('utf-8')
-        final_hash = base64_hash_str.rstrip('=')
+        base64_hash_str = base64_hash_bytes.decode("utf-8")
+        final_hash = base64_hash_str.rstrip("=")
         final_sourcesystem_cd = f"{prefix}{final_hash}"
 
         return final_sourcesystem_cd
@@ -597,13 +591,22 @@ def main(zip_path):
 
         log.info(f"Successfully loaded data for {filename}.")
 
+
 def convert_values_to_i2b2_format(df):
     date_columns = ["start_date", "update_date", "import_date"]
     result_df = df.copy()
     for column in date_columns:
-        result_df[column] = result_df[column].astype(str).apply(
-            lambda x: datetime.strptime(x[:19], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'))
+        result_df[column] = (
+            result_df[column]
+            .astype(str)
+            .apply(
+                lambda x: datetime.strptime(x[:19], "%Y-%m-%d %H:%M:%S").strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            )
+        )
     return result_df
+
 
 def add_general_i2b2_info(df, zip_path):
     result_df = df.copy()
@@ -795,14 +798,16 @@ def transform_dataframe(df, file_config):
 
 def load(transformed_df):
     # establish database conncetion
-    USERNAME = os.environ['username']
-    PASSWORD = os.environ['password']
-    I2B2_CONNECTION_URL = os.environ['connection-url']
-    pattern = r'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
+    USERNAME = os.environ["username"]
+    PASSWORD = os.environ["password"]
+    I2B2_CONNECTION_URL = os.environ["connection-url"]
+    pattern = r"jdbc:postgresql://(.*?)(\?searchPath=.*)?$"
     connection = re.search(pattern, I2B2_CONNECTION_URL).group(1)
-    ENGINE = db.create_engine(f"postgresql+psycopg2://{USERNAME}:{PASSWORD}@{connection}", pool_pre_ping=True)
+    ENGINE = db.create_engine(
+        f"postgresql+psycopg2://{USERNAME}:{PASSWORD}@{connection}", pool_pre_ping=True
+    )
     conn = ENGINE.connect()
-    TABLE = db.Table('observation_fact', db.MetaData(), autoload_with=ENGINE)
+    TABLE = db.Table("observation_fact", db.MetaData(), autoload_with=ENGINE)
 
     delete_from_db(conn, TABLE, transformed_df)
     upload_into_db(conn, TABLE, transformed_df)
@@ -811,6 +816,7 @@ def load(transformed_df):
     conn.close()
     ENGINE.dispose()
 
+
 def delete_from_db(conn, TABLE, transformed_df):
     """
     delete existing combinations of encounter_nums/start_date/concept_cd from TABLE
@@ -818,27 +824,34 @@ def delete_from_db(conn, TABLE, transformed_df):
     transaction = conn.begin()
     try:
         unique_combinations = (
-            transformed_df[['encounter_num', 'start_date', 'concept_cd']]
+            transformed_df[["encounter_num", "start_date", "concept_cd"]]
             .drop_duplicates()
-            .to_dict(orient='records')
+            .to_dict(orient="records")
         )
 
         if unique_combinations:
             for row in unique_combinations:
-                encounter = row['encounter_num']
-                date_i2b2 = convert_date_to_i2b2_format(str(row['start_date']))
-                concept = row['concept_cd']
+                encounter = row["encounter_num"]
+                date_i2b2 = convert_date_to_i2b2_format(str(row["start_date"]))
+                concept = row["concept_cd"]
 
-                statement = (TABLE.delete()
-                             .where(TABLE.c['encounter_num'] == encounter)
-                             .where(TABLE.c['start_date'] == date_i2b2))
-                statement = statement.where(TABLE.c['concept_cd'] == concept) if concept else statement
+                statement = (
+                    TABLE.delete()
+                    .where(TABLE.c["encounter_num"] == encounter)
+                    .where(TABLE.c["start_date"] == date_i2b2)
+                )
+                statement = (
+                    statement.where(TABLE.c["concept_cd"] == concept)
+                    if concept
+                    else statement
+                )
 
                 conn.execute(statement)
 
         transaction.commit()
     except exc.SQLAlchemyError as e:
         transaction.rollback()
+
 
 def upload_into_db(conn, TABLE, transformed_df):
     """
@@ -848,18 +861,19 @@ def upload_into_db(conn, TABLE, transformed_df):
     try:
         temp = 100
         for i in range(0, len(transformed_df), temp):
-            stapel = transformed_df.iloc[i:i + temp]
-            records = stapel.to_dict(orient='records')
+            stapel = transformed_df.iloc[i : i + temp]
+            records = stapel.to_dict(orient="records")
             if records:
                 conn.execute(TABLE.insert(), records)
         insert_transaction.commit()
     except exc.SQLAlchemyError as e:
         insert_transaction.rollback()
 
+
 def convert_date_to_i2b2_format(date: str) -> str:
     if len(date) > 19:
         date = date[:19]
-    return datetime.strptime(date, '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+    return datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
 
 
 # For testing purposes
@@ -884,7 +898,7 @@ def load_env():
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                                value.startswith('"') and value.endswith('"')
+                            value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
