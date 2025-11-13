@@ -559,10 +559,10 @@ def get_sourcesystem_cd_from_zip(filepath, prefix="AS:"):
         return final_sourcesystem_cd
 
     except FileNotFoundError:
-        print(f"ERROR: File not found at {filepath}")
+        log.error(f"Error: file {filepath} does not exist")
         return None
     except Exception as e:
-        print(f"An error occurred during hashing: {e}")
+        log.error(f"An unexpected error occurred: {e}")
         return None
 
 
