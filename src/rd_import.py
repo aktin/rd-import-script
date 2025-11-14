@@ -919,7 +919,7 @@ if __name__ == "__main__":
     load_env()
 
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: python rd-import.py <zip-file>")
+        raise SystemExit("Usage: python rd_import.py <zip-file>")
 
     logging.basicConfig(
         level=logging.INFO,
