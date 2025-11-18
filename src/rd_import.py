@@ -4,6 +4,24 @@
 # @VIEWNAME=Rettungsdienst Importscript
 # @MIMETYPE=zip
 # @ID=rd
+"""
+
+      Copyright (c) 2025  AKTIN
+
+      This program is free software: you can redistribute it and/or modify
+      it under the terms of the GNU Affero General Public License as
+      published by the Free Software Foundation, either version 3 of the
+      License, or (at your option) any later version.
+
+      This program is distributed in the hope that it will be useful,
+      but WITHOUT ANY WARRANTY; without even the implied warranty of
+      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+      GNU Affero General Public License for more details.
+
+      You should have received a copy of the GNU Affero General Public License
+      along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
 import base64
 import hashlib
 import logging
@@ -18,17 +36,6 @@ from pathlib import Path
 import pandas as pd
 import sqlalchemy as db
 from sqlalchemy import exc
-
-"""
-Rettungsdienst Import Script
-
-This script processes zipped Rettungsdienst (emergency service) data,
-validates CSV files, transforms them into i2b2-compatible format, and loads
-the resulting dataset. It is designed to support AKTIN-style data imports.
-
-Authors: Alexander Ivanets, Markus Nissen
-License: GNU Affero General Public License v3.0
-"""
 
 # =============================================================================
 # --- CONFIGURATION ---
