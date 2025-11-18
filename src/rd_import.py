@@ -80,7 +80,7 @@ CONFIG = {
         "start_date": "_metadata_start_date",
         "instance_num": "_metadata_instance_num",
     },
-    "i2b2_transforms": [
+    "i2b2_transformations": [
         # tval_transform instructions
         {
             "source_col": "einsatznummer",
@@ -798,7 +798,7 @@ def transform_dataframe(df, file_config):
         Transformed i2b2 DataFrame.
     """
     key_cols = CONFIG["i2b2_key_columns"]
-    transform_list = CONFIG["i2b2_transforms"]
+    transform_list = CONFIG["i2b2_transformations"]
 
     clock_cols = file_config["clock_columns"]
 
@@ -896,7 +896,7 @@ def load_env():
     Loads environment variables from a .env file if it exists.
     This is a basic parser and doesn't handle all .env syntax.
     """
-    env_path = os.path.join("..", ".env")
+    env_path = os.path.join("../local", ".env")
     if os.path.exists(env_path):
         print(f"Info: Found '{env_path}' file, loading environment variables.")
         try:
