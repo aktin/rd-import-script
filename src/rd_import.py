@@ -31,7 +31,8 @@ import tempfile
 import zipfile
 import tomllib  # Requires Python 3.11+
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PosixPath
+from typing import Any
 
 import pandas as pd
 import sqlalchemy as db
@@ -42,7 +43,7 @@ from sqlalchemy import exc
 # --- CONFIGURATION LOADING ---
 # =============================================================================
 
-def load_config(config_path: str ="config.toml") -> None:
+def load_config(config_path: str ="config.toml") -> dict[str, Any]:
     try:
         with open(config_path, "rb") as f:
             return tomllib.load(f)
@@ -62,7 +63,7 @@ def load_config(config_path: str ="config.toml") -> None:
 # =============================================================================
 
 
-def find_earliest_timestamp(df, clock_columns):
+def find_earliest_timestamp(df: pd.DataFrame, clock_columns: pd.Series) -> pd.DataFrame:
     """
     Determine the earliest timestamp for each row from all available clock columns in a DataFrame.
 
@@ -89,7 +90,7 @@ def find_earliest_timestamp(df, clock_columns):
     return df
 
 
-def assign_instance_number(df, encounter_col, start_date_col):
+def assign_instance_number(df: pd.DataFrame, encounter_col: str, start_date_col: str) -> pd.DataFrame:
     """
     Assign sequential instance numbers to encounters based on start time.
 
@@ -109,7 +110,7 @@ def assign_instance_number(df, encounter_col, start_date_col):
     return df
 
 
-def tval_transform(row, instruction, key_cols_map):
+def tval_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
     """
     Transform a single row into a 'tval' i2b2 observation.
     """
@@ -133,7 +134,7 @@ def tval_transform(row, instruction, key_cols_map):
     return base
 
 
-def code_transform(row, instruction, key_cols_map):
+def code_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict:
     """
     Transform a row into a 'code' i2b2 observation.
     """
@@ -152,7 +153,7 @@ def code_transform(row, instruction, key_cols_map):
     return base
 
 
-def cd_transform(row, instruction, key_cols_map):
+def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
     """
     Transform a row into a 'cd' i2b2 observation (concept + modifier). Handle metadata.
     """
@@ -177,7 +178,7 @@ def cd_transform(row, instruction, key_cols_map):
     return base
 
 
-def metadata_cd_transform(row, instruction, key_cols_map):
+def metadata_cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
     """
     Generates a 'cd' observation from environment variables,
     but attaches it to the current row's encounter.
@@ -206,7 +207,7 @@ def metadata_cd_transform(row, instruction, key_cols_map):
     return base
 
 
-def base_i2b2_row(row, key_cols_map):
+def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
     """
     Construct a base i2b2 observation row structure.
 
@@ -243,7 +244,7 @@ TRANSFORM_DISPATCHER = {
 }
 
 
-def dataframe_to_i2b2(df, instructions_list, key_cols_map):
+def dataframe_to_i2b2(df: pd.DataFrame, instructions_list: list, key_cols_map: dict) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
 
@@ -272,7 +273,7 @@ def dataframe_to_i2b2(df, instructions_list, key_cols_map):
     return pd.DataFrame(results)
 
 
-def extract_zip(zip_path):
+def extract_zip(zip_path: str) -> PosixPath:
     """
     Extract a ZIP file into a temporary directory.
 
@@ -306,7 +307,7 @@ def extract_zip(zip_path):
     return extract_dir
 
 
-def get_sourcesystem_cd_from_zip(filepath, prefix="AS:"):
+def get_sourcesystem_cd_from_zip(filepath: str, prefix: str="AS:") -> str | None:
     """
     Calculates the SHA-256 hash of a file, encodes it in
     URL-safe Base64, and prepends the given prefix.
@@ -345,7 +346,7 @@ def get_sourcesystem_cd_from_zip(filepath, prefix="AS:"):
         return None
 
 
-def main(zip_path):
+def main(zip_path: str) -> None:
     """
     Main entry point for the import process.
 
@@ -380,7 +381,7 @@ def main(zip_path):
         log.info(f"Successfully loaded data for {filename}.")
 
 
-def convert_values_to_i2b2_format(df):
+def convert_values_to_i2b2_format(df: pd.DataFrame) -> pd.DataFrame:
     date_columns = ["start_date", "update_date", "import_date"]
     result_df = df.copy()
     for column in date_columns:
@@ -396,7 +397,7 @@ def convert_values_to_i2b2_format(df):
     return result_df
 
 
-def add_general_i2b2_info(df, zip_path):
+def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     result_df = df.copy()
     result_df["update_date"] = pd.Timestamp.now()
     result_df["import_date"] = pd.Timestamp.now()
@@ -404,7 +405,7 @@ def add_general_i2b2_info(df, zip_path):
     return result_df
 
 
-def extract(filepath):
+def extract(filepath: PosixPath) -> pd.DataFrame:
     """
     Read a CSV file into a DataFrame.
 
@@ -433,7 +434,7 @@ def extract(filepath):
     return einsatzdaten_df
 
 
-def preprocess(df, file_config):
+def preprocess(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     """
     Preprocess input DataFrame before transformation.
 
@@ -459,7 +460,7 @@ def preprocess(df, file_config):
     return df
 
 
-def check_df_for_mandatory_columns(df, mandatory_columns):
+def check_df_for_mandatory_columns(df: pd.DataFrame, mandatory_columns: list) -> pd.DataFrame:
     """
     Ensure mandatory columns are present in DataFrame.
 
@@ -475,7 +476,7 @@ def check_df_for_mandatory_columns(df, mandatory_columns):
         raise ValueError(f"Missing mandatory columns: {', '.join(missing_cols)}")
 
 
-def check_clock_values(df, clock_columns):
+def check_clock_values(df: pd.DataFrame, clock_columns: list) -> pd.DataFrame:
     """
     Remove rows missing all clock columns.
 
@@ -505,7 +506,7 @@ def check_clock_values(df, clock_columns):
     return df
 
 
-def clean_integer_strings(df, cols_to_clean):
+def clean_integer_strings(df: pd.DataFrame, cols_to_clean: list) -> pd.DataFrame:
     """
     Clean numeric strings by removing decimal separators and text.
 
@@ -527,7 +528,7 @@ def clean_integer_strings(df, cols_to_clean):
     return df
 
 
-def validate_dataframe(df, regex_patterns):
+def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> pd.DataFrame:
     """
     Validate DataFrame columns against regex patterns.
 
@@ -562,7 +563,7 @@ def validate_dataframe(df, regex_patterns):
                 raise ValueError(f"Validation failed for column '{col}'.")
 
 
-def transform_dataframe(df, file_config):
+def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     """
     Apply all transformation steps to convert DataFrame into i2b2 format.
 
@@ -584,7 +585,7 @@ def transform_dataframe(df, file_config):
     return dataframe_to_i2b2(df, transform_list, key_cols)
 
 
-def load(transformed_df):
+def load(transformed_df: pd.DataFrame) -> pd.DataFrame:
     # establish database conncetion
     USERNAME = os.environ["username"]
     PASSWORD = os.environ["password"]
@@ -643,7 +644,7 @@ def delete_from_db(conn, TABLE, transformed_df):
         transaction.rollback()
 
 
-def upload_into_db(conn, TABLE, transformed_df):
+def upload_into_db(conn: db.Connection, table: db.Table, transformed_df: pd.DataFrame) -> None:
     """
     load all dataframe lines into table
     """
@@ -654,7 +655,7 @@ def upload_into_db(conn, TABLE, transformed_df):
             stapel = transformed_df.iloc[i: i + temp]
             records = stapel.to_dict(orient="records")
             if records:
-                conn.execute(TABLE.insert(), records)
+                conn.execute(table.insert(), records)
         insert_transaction.commit()
     except exc.SQLAlchemyError as e:
         insert_transaction.rollback()
@@ -667,7 +668,7 @@ def convert_date_to_i2b2_format(date: str) -> str:
 
 
 # For testing purposes
-def load_env():
+def load_env() -> None:
     """
     Loads environment variables from a .env file if it exists.
     This is a basic parser and doesn't handle all .env syntax.
