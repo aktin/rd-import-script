@@ -28,8 +28,8 @@ import os
 import re
 import sys
 import tempfile
-import zipfile
 import tomllib  # Requires Python 3.11+
+import zipfile
 from datetime import datetime
 from pathlib import Path, PosixPath
 from typing import Any
@@ -43,7 +43,7 @@ from sqlalchemy import exc
 # --- CONFIGURATION LOADING ---
 # =============================================================================
 
-def load_config(config_path: str ="config.toml") -> dict[str, Any]:
+def load_config(config_path: str = "config.toml") -> dict[str, Any]:
     try:
         with open(config_path, "rb") as f:
             return tomllib.load(f)
@@ -56,25 +56,12 @@ def load_config(config_path: str ="config.toml") -> dict[str, Any]:
         raise RuntimeError(f"Failed to parse TOML configuration: {e}")
 
 
-
-
 # =============================================================================
 # --- Script ---
 # =============================================================================
 
 
 def find_earliest_timestamp(df: pd.DataFrame, clock_columns: pd.Series) -> pd.DataFrame:
-    """
-    Determine the earliest timestamp for each row from all available clock columns in a DataFrame.
-
-    Args:
-        df: Input DataFrame containing time columns.
-        clock_columns: List of column names representing timestamps.
-
-    Returns:
-        DataFrame with an additional column `_metadata_start_date` containing
-        the earliest timestamp per row.
-    """
     available_clocks = list(set(clock_columns) & set(df.columns))
 
     min_timestamps = (
@@ -208,16 +195,6 @@ def metadata_cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> d
 
 
 def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
-    """
-    Construct a base i2b2 observation row structure.
-
-    Args:
-        row: Source pandas row.
-        key_cols_map: Mapping of i2b2 key column names to source columns.
-
-    Returns:
-        Dictionary representing an i2b2 base observation row.
-    """
     return {
         "encounter_num": row.get(key_cols_map["encounter_num"]),
         "patient_num": row.get(key_cols_map["patient_num"]),
@@ -247,14 +224,6 @@ TRANSFORM_DISPATCHER = {
 def dataframe_to_i2b2(df: pd.DataFrame, instructions_list: list, key_cols_map: dict) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
-
-    Args:
-        df: Input DataFrame.
-        instructions_list: List of transformation instruction dicts.
-        key_cols_map: Mapping of i2b2 key columns.
-
-    Returns:
-        Transformed DataFrame containing i2b2 facts.
     """
     results = []
     for row in df.itertuples(index=False):
@@ -273,20 +242,7 @@ def dataframe_to_i2b2(df: pd.DataFrame, instructions_list: list, key_cols_map: d
     return pd.DataFrame(results)
 
 
-def extract_zip(zip_path: str) -> PosixPath:
-    """
-    Extract a ZIP file into a temporary directory.
-
-    Args:
-        zip_path: Path to ZIP file.
-
-    Returns:
-        Path to the extraction directory.
-
-    Raises:
-        FileNotFoundError: If file does not exist.
-        RuntimeError: If extraction fails.
-    """
+def extract_zip_into_tmp_dir(zip_path: str) -> Path:
     zip_path = Path(zip_path)
     if not zip_path.is_file():
         raise FileNotFoundError(f"Error: file {zip_path} does not exist")
@@ -297,7 +253,6 @@ def extract_zip(zip_path: str) -> PosixPath:
     try:
         extract_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zip_path, "r") as zip_file:
-            log.info(f"Extracting {zip_path} to {extract_dir}...")
             zip_file.extractall(extract_dir)
     except zipfile.BadZipFile as e:
         raise RuntimeError(f"Error: file {zip_path} does not contain a zip file") from e
@@ -307,20 +262,13 @@ def extract_zip(zip_path: str) -> PosixPath:
     return extract_dir
 
 
-def get_sourcesystem_cd_from_zip(filepath: str, prefix: str="AS:") -> str | None:
+def get_sourcesystem_cd_from_zip(filepath: str, prefix: str = "AS:") -> str | None:
     """
     Calculates the SHA-256 hash of a file, encodes it in
     URL-safe Base64, and prepends the given prefix.
 
     This format is secure and fits within a VARCHAR(50) field.
     (3-char prefix + 44-char hash = 47 chars)
-
-    Args:
-        filepath (str): The path to the zip file.
-        prefix (str): The custom prefix for your script.
-
-    Returns:
-        str: The formatted sourcesystem_cd string.
     """
 
     sha256_hash = hashlib.sha256()
@@ -347,18 +295,12 @@ def get_sourcesystem_cd_from_zip(filepath: str, prefix: str="AS:") -> str | None
 
 
 def main(zip_path: str) -> None:
-    """
-    Main entry point for the import process.
-
-    Args:
-        zip_path: Path to ZIP file containing Rettungsdienst data.
-    """
     if not CONFIG:
         log.error("Configuration not loaded. Aborting.")
         return
 
     log.info(f"Starting import for {zip_path}")
-    extract_dir = extract_zip(zip_path)
+    extract_dir = extract_zip_into_tmp_dir(zip_path)
 
     for _, file_config in CONFIG["files"].items():
         filename = file_config["filename"]
@@ -366,7 +308,7 @@ def main(zip_path: str) -> None:
 
         file_path = extract_dir / filename
 
-        df = extract(file_path)
+        df = load_csv_into_df(file_path)
         df = preprocess(df, file_config)
         validate_dataframe(df, file_config["regex_patterns"])
 
@@ -405,19 +347,7 @@ def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     return result_df
 
 
-def extract(filepath: PosixPath) -> pd.DataFrame:
-    """
-    Read a CSV file into a DataFrame.
-
-    Args:
-        filepath: Path to the CSV file.
-
-    Returns:
-        DataFrame with CSV contents.
-
-    Raises:
-        ValueError: If the file is empty.
-    """
+def load_csv_into_df(filepath: PosixPath) -> pd.DataFrame:
     try:
         einsatzdaten_df = pd.read_csv(filepath, sep=";", dtype=str)
 
@@ -425,9 +355,7 @@ def extract(filepath: PosixPath) -> pd.DataFrame:
             raise ValueError("CSV file is empty.")
 
     except FileNotFoundError:
-        raise
-    except pd.errors.EmptyDataError:
-        raise
+        raise FileNotFoundError(f"Error: file {filepath} does not exist")
     except Exception as e:
         raise Exception(f"Error reading CSV: {e}")
 
@@ -441,36 +369,19 @@ def preprocess(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     - Checks mandatory columns.
     - Cleans integer-like columns.
     - Removes rows missing all clock values.
-
-    Args:
-        df: Input DataFrame.
-        file_config: File configuration dict.
-
-    Returns:
-        Cleaned DataFrame.
     """
     check_df_for_mandatory_columns(df, file_config["mandatory_columns"])
 
     if file_config.get("integer_cleanup_columns"):
         log.info(f"Cleaning integer columns: {file_config['integer_cleanup_columns']}")
-        df = clean_integer_strings(df, file_config["integer_cleanup_columns"])
+        # df = clean_integer_strings(df, file_config["integer_cleanup_columns"])
 
     df = check_clock_values(df, file_config["clock_columns"])
 
     return df
 
 
-def check_df_for_mandatory_columns(df: pd.DataFrame, mandatory_columns: list) -> pd.DataFrame:
-    """
-    Ensure mandatory columns are present in DataFrame.
-
-    Args:
-        df: DataFrame to check.
-        mandatory_columns: List of required column names.
-
-    Raises:
-        ValueError: If any columns are missing.
-    """
+def check_df_for_mandatory_columns(df: pd.DataFrame, mandatory_columns: list) -> None:
     missing_cols = set(mandatory_columns) - set(df.columns)
     if missing_cols:
         raise ValueError(f"Missing mandatory columns: {', '.join(missing_cols)}")
@@ -506,38 +417,9 @@ def check_clock_values(df: pd.DataFrame, clock_columns: list) -> pd.DataFrame:
     return df
 
 
-def clean_integer_strings(df: pd.DataFrame, cols_to_clean: list) -> pd.DataFrame:
-    """
-    Clean numeric strings by removing decimal separators and text.
-
-    Args:
-        df: Input DataFrame.
-        cols_to_clean: List of column names to clean.
-
-    Returns:
-        Cleaned DataFrame.
-    """
-    for col in cols_to_clean:
-        if col in df.columns:
-            df[col] = (
-                df[col]
-                .astype(str)
-                .apply(lambda x: re.split(r"[,\.]", x)[0])
-                .replace("nan", "")
-            )
-    return df
-
-
-def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> pd.DataFrame:
+def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> None:
     """
     Validate DataFrame columns against regex patterns.
-
-    Args:
-        df: Input DataFrame.
-        regex_patterns: Dict of column names to regex patterns.
-
-    Raises:
-        ValueError: If validation fails for any column.
     """
     for col, pattern in regex_patterns.items():
         if col in df.columns:
@@ -564,16 +446,6 @@ def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> pd.DataFrame:
 
 
 def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
-    """
-    Apply all transformation steps to convert DataFrame into i2b2 format.
-
-    Args:
-        df: Cleaned input DataFrame.
-        file_config: File configuration dict.
-
-    Returns:
-        Transformed i2b2 DataFrame.
-    """
     key_cols = CONFIG["i2b2_key_columns"]
     transform_list = CONFIG["i2b2_transformations"]
 
@@ -585,7 +457,7 @@ def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     return dataframe_to_i2b2(df, transform_list, key_cols)
 
 
-def load(transformed_df: pd.DataFrame) -> pd.DataFrame:
+def load(transformed_df: pd.DataFrame) -> None:
     # establish database conncetion
     USERNAME = os.environ["username"]
     PASSWORD = os.environ["password"]
@@ -650,7 +522,7 @@ def upload_into_db(conn: db.Connection, table: db.Table, transformed_df: pd.Data
     """
     insert_transaction = conn.begin()
     try:
-        temp = 100
+        temp = 5000
         for i in range(0, len(transformed_df), temp):
             stapel = transformed_df.iloc[i: i + temp]
             records = stapel.to_dict(orient="records")
@@ -669,10 +541,6 @@ def convert_date_to_i2b2_format(date: str) -> str:
 
 # For testing purposes
 def load_env() -> None:
-    """
-    Loads environment variables from a .env file if it exists.
-    This is a basic parser and doesn't handle all .env syntax.
-    """
     env_path = os.path.join("../local", ".env")
     if os.path.exists(env_path):
         print(f"Info: Found '{env_path}' file, loading environment variables.")
