@@ -61,20 +61,20 @@ def load_config(config_path: str = "config.toml") -> dict[str, Any]:
 # =============================================================================
 
 
-def find_earliest_timestamp(df: pd.DataFrame, clock_columns: pd.Series) -> pd.DataFrame:
-    available_clocks = list(set(clock_columns) & set(df.columns))
 
-    min_timestamps = (
-        df[available_clocks]
-        .apply(lambda col: pd.to_datetime(col, format="%Y%m%d%H%M%S", errors="coerce"))
-        .min(axis=1)
+def get_earliest_timestamp_per_row(
+        timestamp_df: pd.DataFrame,
+        date_format: str = "%Y%m%d%H%M%S"
+) -> pd.Series:
+    """
+    Parses a DataFrame of timestamp strings and returns the earliest
+    timestamp for each row as a datetime object.
+    """
+    dt_df = timestamp_df.apply(
+        lambda col: pd.to_datetime(col, format=date_format, errors="coerce")
     )
 
-    df["_metadata_start_date"] = min_timestamps.dt.strftime("%Y%m%d%H%M%S")
-
-    df["_metadata_start_date"] = df["_metadata_start_date"].replace("NaT", None)
-
-    return df
+    return dt_df.min(axis=1)
 
 
 def assign_instance_number(df: pd.DataFrame, encounter_col: str, start_date_col: str) -> pd.DataFrame:
@@ -389,33 +389,24 @@ def check_df_for_mandatory_columns(df: pd.DataFrame, mandatory_columns: list) ->
 
 def check_clock_values(df: pd.DataFrame, clock_columns: list) -> pd.DataFrame:
     """
-    Remove rows missing all clock columns.
-
-    Args:
-        df: Input DataFrame.
-        clock_columns: List of time columns to check.
-
-    Returns:
-        Filtered DataFrame.
+    Remove rows missing all clock columns (handles empty strings and whitespace).
     """
     available_clock_cols = [col for col in clock_columns if col in df.columns]
 
-    clock_df_subset = df[available_clock_cols]
-    missing_all_clocks = clock_df_subset.replace("", pd.NA).isna().all(axis=1)
+    subset = df[available_clock_cols].replace(r"^\s*$", pd.NA, regex=True)
+
+    missing_all_clocks = subset.isna().all(axis=1)
 
     if missing_all_clocks.any():
         num_bad_rows = missing_all_clocks.sum()
         first_bad_row_index = missing_all_clocks.idxmax()
-        first_bad_row_number = first_bad_row_index + 1
 
         log.warning(
-            f"Found and removed {num_bad_rows} rows (starting from row {first_bad_row_number}) "
+            f"Found and removed {num_bad_rows} rows (starting from index {first_bad_row_index}) "
             "that were missing all available clock columns."
         )
-        df = df[~missing_all_clocks].reset_index(drop=True)
-
+        df = df.loc[~missing_all_clocks].reset_index(drop=True)
     return df
-
 
 def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> None:
     """
@@ -451,7 +442,7 @@ def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
 
     clock_cols = file_config["clock_columns"]
 
-    df = find_earliest_timestamp(df, clock_cols)
+    df["_metadata_start_date"] = get_earliest_timestamp_per_row(df)
     df = assign_instance_number(df, key_cols["encounter_num"], key_cols["start_date"])
 
     return dataframe_to_i2b2(df, transform_list, key_cols)
