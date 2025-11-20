@@ -27,8 +27,8 @@ einsatznummer = '^1(2[3-9]|[3-9]\d)0\d{6}$'
 einsatzart = '^(A\d{2}|[AFHKLNPTUÜ])$'
 uhr_erstes_klingeln = '^\d{14}$'
 uhr_annahme = '^\d{14}$'
-einsatzort_hausnummer = '^\d+$'
-zielort_hausnummer = '^\d+$'
+# einsatzort_hausnummer = '^\d+$'
+# zielort_hausnummer = '^\d+$'
 typ = '^(?:$|\d+(?:-\d+)?|(?:KTW|RTW|RWT|NEF|LNA|LF|HLF|KLF|GW|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW|PERSONAL)(?: ?\d+(?:-\d+)?)?)$'
 uhralarm = '^\d{14}$'
 uhr3 = '^\d{14}$'
@@ -136,12 +136,10 @@ transform_type = "code"
 concept_cd_base = "AS:TYPE"
 
 [[i2b2_transformations]]
-# source_col = None (omitted)
 transform_type = "code"
 concept_cd_base = "AS:LOCATION"
 
 [[i2b2_transformations]]
-# source_col = None (omitted)
 transform_type = "code"
 concept_cd_base = "AS:DESTINATION"
 
@@ -181,7 +179,7 @@ modifier_cd = "street"
 source_col = "einsatzort_hausnummer"
 transform_type = "cd"
 concept_cd = "AS:LOCATION"
-modifier_cd = "houseNummer"
+modifier_cd = "houseNumber"
 
 [[i2b2_transformations]]
 source_col = "zielort_staat"
@@ -217,23 +215,20 @@ modifier_cd = "street"
 source_col = "zielort_hausnummer"
 transform_type = "cd"
 concept_cd = "AS:DESTINATION"
-modifier_cd = "houseNummer"
+modifier_cd = "houseNumber"
 
 # Metadata
 
 [[i2b2_transformations]]
-# source_col = None (omitted)
 transform_type = "code"
 concept_cd_base = "AS:SCRIPT"
 
 [[i2b2_transformations]]
-# source_col = None (omitted)
 transform_type = "metadata_cd"
 concept_cd = "AS:SCRIPT"
 modifier_cd = "scriptId"
 
 [[i2b2_transformations]]
-# source_col = None (omitted)
 transform_type = "metadata_cd"
 concept_cd = "AS:SCRIPT"
 modifier_cd = "scriptVersion"
