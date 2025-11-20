@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*
 # Created on Wed Oct 22 13:00 2025
-# @VERSION=1.0
-# @VIEWNAME=Rettungsdienst Importscript
+# @VERSION=1.1
+# @VIEWNAME=Rettungsdienst Importscript (TOML)
 # @MIMETYPE=zip
 # @ID=rd
 """
@@ -21,7 +21,6 @@
       You should have received a copy of the GNU Affero General Public License
       along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-
 import base64
 import hashlib
 import logging
@@ -30,6 +29,7 @@ import re
 import sys
 import tempfile
 import zipfile
+import tomllib  # Requires Python 3.11+
 from datetime import datetime
 from pathlib import Path
 
@@ -37,240 +37,24 @@ import pandas as pd
 import sqlalchemy as db
 from sqlalchemy import exc
 
+
 # =============================================================================
-# --- CONFIGURATION ---
+# --- CONFIGURATION LOADING ---
 # =============================================================================
-CONFIG = {
-    "files": {
-        "einsatzdaten": {
-            "filename": "einsatzdaten.csv",
-            "mandatory_columns": ["einsatznummer", "einsatzart", "einsatzstichwort"],
-            "clock_columns": [
-                "uhr_erstes_klingeln",
-                "uhr_annahme",
-                "uhr3",
-                "uhr4",
-                "uhr7",
-                "uhr8",
-                "uhr1",
-                "uhr2",
-            ],
-            "integer_cleanup_columns": ["einsatzort_hausnummer", "zielort_hausnummer"],
-            "regex_patterns": {
-                "einsatznummer": r"^1(2[3-9]|[3-9]\d)0\d{6}$",
-                "einsatzart": r"^(A\d{2}|[AFHKLNPTUÜ])$",
-                "uhr_erstes_klingeln": r"^\d{14}$",
-                "uhr_annahme": r"^\d{14}$",
-                "einsatzort_hausnummer": r"^\d+$",
-                "zielort_hausnummer": r"^\d+$",
-                "typ": r"^(?:$|\d+(?:-\d+)?|(?:KTW|RTW|RWT|NEF|LNA|LF|HLF|KLF|GW|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW|PERSONAL)(?: ?\d+(?:-\d+)?)?)$",
-                "uhralarm": r"^\d{14}$",
-                "uhr3": r"^\d{14}$",
-                "uhr4": r"^\d{14}$",
-                "uhr7": r"^\d{14}$",
-                "uhr8": r"^\d{14}$",
-                "uhr1": r"^\d{14}$",
-                "uhr2": r"^\d{14}$",
-            },
-        }
-    },
-    "i2b2_key_columns": {
-        "encounter_num": "einsatznummer",
-        "patient_num": "einsatznummer",
-        "start_date": "_metadata_start_date",
-        "instance_num": "_metadata_instance_num",
-    },
-    "i2b2_transformations": [
-        # tval_transform instructions
-        {
-            "source_col": "einsatznummer",
-            "transform_type": "tval",
-            "concept_cd": "AS:ID",
-        },
-        {
-            "source_col": "einsatzstichwort",
-            "transform_type": "tval",
-            "concept_cd": "AS:KEYWORD",
-        },
-        {
-            "source_col": "einsatzstichwort_text",
-            "transform_type": "tval",
-            "concept_cd": "AS:KEYWORDTXT",
-        },
-        {
-            "source_col": "uhr_erstes_klingeln",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_FIRSTRING",
-        },
-        {
-            "source_col": "uhr_annahme",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_ACCEPT",
-        },
-        {
-            "source_col": "diagnose",
-            "transform_type": "tval",
-            "concept_cd": "AS:DIAGNOSE",
-        },
-        {
-            "source_col": "bemerkung",
-            "transform_type": "tval",
-            "concept_cd": "AS:COMMENT",
-        },
-        {
-            "source_col": "name",
-            "transform_type": "tval",
-            "concept_cd": "AS:RESSOURCENAME",
-        },
-        {
-            "source_col": "typ",
-            "transform_type": "tval",
-            "concept_cd": "AS:RESSOURCETYPE",
-        },
-        {
-            "source_col": "uhralarm",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_ALERT",
-        },
-        {
-            "source_col": "uhr3",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_3",
-        },
-        {
-            "source_col": "uhr4",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_4",
-        },
-        {
-            "source_col": "uhr7",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_7",
-        },
-        {
-            "source_col": "uhr8",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_8",
-        },
-        {
-            "source_col": "uhr1",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_1",
-        },
-        {
-            "source_col": "uhr2",
-            "transform_type": "tval",
-            "concept_cd": "AS:CLOCK_2",
-        },
-        # code_transform instructions
-        {
-            "source_col": "einsatzart",
-            "transform_type": "code",
-            "concept_cd_base": "AS:TYPE",
-        },
-        {
-            "source_col": None,
-            "transform_type": "code",
-            "concept_cd_base": "AS:LOCATION",
-        },
-        {
-            "source_col": None,
-            "transform_type": "code",
-            "concept_cd_base": "AS:DESTINATION",
-        },
-        # cd_transform instructions
-        {
-            "source_col": "einstzort_staat",
-            "transform_type": "cd",
-            "concept_cd": "AS:LOCATION",
-            "modifier_cd": "country",
-        },
-        {
-            "source_col": "einstzort_bundesland",
-            "transform_type": "cd",
-            "concept_cd": "AS:LOCATION",
-            "modifier_cd": "state",
-        },
-        {
-            "source_col": "einsatzort_ort",
-            "transform_type": "cd",
-            "concept_cd": "AS:LOCATION",
-            "modifier_cd": "city",
-        },
-        {
-            "source_col": "einsatzort_ortsteil",
-            "transform_type": "cd",
-            "concept_cd": "AS:LOCATION",
-            "modifier_cd": "suburb",
-        },
-        {
-            "source_col": "einsatzort_strasse",
-            "transform_type": "cd",
-            "concept_cd": "AS:LOCATION",
-            "modifier_cd": "street",
-        },
-        {
-            "source_col": "einsatzort_hausnummer",
-            "transform_type": "cd",
-            "concept_cd": "AS:LOCATION",
-            "modifier_cd": "houseNummer",
-        },
-        {
-            "source_col": "zielort_staat",
-            "transform_type": "cd",
-            "concept_cd": "AS:DESTINATION",
-            "modifier_cd": "country",
-        },
-        {
-            "source_col": "zielort_bundesland",
-            "transform_type": "cd",
-            "concept_cd": "AS:DESTINATION",
-            "modifier_cd": "state",
-        },
-        {
-            "source_col": "zielort_ort",
-            "transform_type": "cd",
-            "concept_cd": "AS:DESTINATION",
-            "modifier_cd": "city",
-        },
-        {
-            "source_col": "zielort_ortsteil",
-            "transform_type": "cd",
-            "concept_cd": "AS:DESTINATION",
-            "modifier_cd": "suburb",
-        },
-        {
-            "source_col": "zielort_strasse",
-            "transform_type": "cd",
-            "concept_cd": "AS:DESTINATION",
-            "modifier_cd": "street",
-        },
-        {
-            "source_col": "zielort_hausnummer",
-            "transform_type": "cd",
-            "concept_cd": "AS:DESTINATION",
-            "modifier_cd": "houseNummer",
-        },
-        # Metadata
-        {
-            "source_col": None,
-            "transform_type": "code",
-            "concept_cd_base": "AS:SCRIPT",
-        },
-        {
-            "source_col": None,
-            "transform_type": "metadata_cd",
-            "concept_cd": "AS:SCRIPT",
-            "modifier_cd": "scriptId",
-        },
-        {
-            "source_col": None,
-            "transform_type": "metadata_cd",
-            "concept_cd": "AS:SCRIPT",
-            "modifier_cd": "scriptVersion",
-        },
-    ],
-}
+
+def load_config(config_path: str ="config.toml") -> None:
+    try:
+        with open(config_path, "rb") as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        if os.path.exists(os.path.join("..", config_path)):
+            with open(os.path.join("..", config_path), "rb") as f:
+                return tomllib.load(f)
+        raise FileNotFoundError(f"Configuration file '{config_path}' not found.")
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse TOML configuration: {e}")
+
+
 
 
 # =============================================================================
@@ -328,16 +112,13 @@ def assign_instance_number(df, encounter_col, start_date_col):
 def tval_transform(row, instruction, key_cols_map):
     """
     Transform a single row into a 'tval' i2b2 observation.
-
-    Args:
-        row: Input data row.
-        instruction: Transformation instruction dict.
-        key_cols_map: Mapping of i2b2 key columns.
-
-    Returns:
-        Dictionary for an i2b2 tval observation, or None if no value.
     """
-    value = row.get(instruction["source_col"])
+    source_col = instruction.get("source_col")
+
+    if not source_col:
+        return None
+
+    value = row.get(source_col)
     if pd.isna(value) or value == "":
         return None
 
@@ -355,16 +136,10 @@ def tval_transform(row, instruction, key_cols_map):
 def code_transform(row, instruction, key_cols_map):
     """
     Transform a row into a 'code' i2b2 observation.
-
-    Args:
-        row: Data row.
-        instruction: Transformation instruction dict.
-        key_cols_map: Mapping of i2b2 key columns.
-
-    Returns:
-        i2b2 observation dictionary.
     """
-    code = row.get(instruction["source_col"]) if instruction["source_col"] else None
+    source_col = instruction.get("source_col")  # Safe access for TOML compatibility
+
+    code = row.get(source_col) if source_col else None
     concept_cd_base = instruction["concept_cd_base"]
 
     base = base_i2b2_row(row, key_cols_map)
@@ -380,16 +155,13 @@ def code_transform(row, instruction, key_cols_map):
 def cd_transform(row, instruction, key_cols_map):
     """
     Transform a row into a 'cd' i2b2 observation (concept + modifier). Handle metadata.
-
-    Args:
-        row: Data row.
-        instruction: Transformation instruction dict.
-        key_cols_map: Mapping of i2b2 key columns.
-
-    Returns:
-        i2b2 observation dictionary or None.
     """
-    tval_char = row.get(instruction["source_col"])
+    source_col = instruction.get("source_col")  # Safe access for TOML compatibility
+
+    if not source_col:
+        return None
+
+    tval_char = row.get(source_col)
     if pd.isna(tval_char) or tval_char == "":
         return None
 
@@ -580,6 +352,10 @@ def main(zip_path):
     Args:
         zip_path: Path to ZIP file containing Rettungsdienst data.
     """
+    if not CONFIG:
+        log.error("Configuration not loaded. Aborting.")
+        return
+
     log.info(f"Starting import for {zip_path}")
     extract_dir = extract_zip(zip_path)
 
@@ -938,5 +714,11 @@ if __name__ == "__main__":
     )
 
     log = logging.getLogger(__name__)
+
+    try:
+        CONFIG = load_config()
+    except Exception as e:
+        print(f"CRITICAL: {e}", file=sys.stderr)
+        CONFIG = {}
 
     main(sys.argv[1])

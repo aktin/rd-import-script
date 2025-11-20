@@ -1,0 +1,239 @@
+# File Configuration
+[files.einsatzdaten]
+filename = "einsatzdaten.csv"
+mandatory_columns = [
+    "einsatznummer",
+    "einsatzart",
+    "einsatzstichwort"
+]
+clock_columns = [
+    "uhr_erstes_klingeln",
+    "uhr_annahme",
+    "uhr3",
+    "uhr4",
+    "uhr7",
+    "uhr8",
+    "uhr1",
+    "uhr2"
+]
+integer_cleanup_columns = [
+    "einsatzort_hausnummer",
+    "zielort_hausnummer"
+]
+
+# Regex Patterns
+[files.einsatzdaten.regex_patterns]
+einsatznummer = '^1(2[3-9]|[3-9]\d)0\d{6}$'
+einsatzart = '^(A\d{2}|[AFHKLNPTUÜ])$'
+uhr_erstes_klingeln = '^\d{14}$'
+uhr_annahme = '^\d{14}$'
+einsatzort_hausnummer = '^\d+$'
+zielort_hausnummer = '^\d+$'
+typ = '^(?:$|\d+(?:-\d+)?|(?:KTW|RTW|RWT|NEF|LNA|LF|HLF|KLF|GW|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW|PERSONAL)(?: ?\d+(?:-\d+)?)?)$'
+uhralarm = '^\d{14}$'
+uhr3 = '^\d{14}$'
+uhr4 = '^\d{14}$'
+uhr7 = '^\d{14}$'
+uhr8 = '^\d{14}$'
+uhr1 = '^\d{14}$'
+uhr2 = '^\d{14}$'
+
+# I2B2 Key Mapping
+[i2b2_key_columns]
+encounter_num = "einsatznummer"
+patient_num = "einsatznummer"
+start_date = "_metadata_start_date"
+instance_num = "_metadata_instance_num"
+
+# I2B2 Transformations
+# tval_transform instructions
+
+[[i2b2_transformations]]
+source_col = "einsatznummer"
+transform_type = "tval"
+concept_cd = "AS:ID"
+
+[[i2b2_transformations]]
+source_col = "einsatzstichwort"
+transform_type = "tval"
+concept_cd = "AS:KEYWORD"
+
+[[i2b2_transformations]]
+source_col = "einsatzstichwort_text"
+transform_type = "tval"
+concept_cd = "AS:KEYWORDTXT"
+
+[[i2b2_transformations]]
+source_col = "uhr_erstes_klingeln"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_FIRSTRING"
+
+[[i2b2_transformations]]
+source_col = "uhr_annahme"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_ACCEPT"
+
+[[i2b2_transformations]]
+source_col = "diagnose"
+transform_type = "tval"
+concept_cd = "AS:DIAGNOSE"
+
+[[i2b2_transformations]]
+source_col = "bemerkung"
+transform_type = "tval"
+concept_cd = "AS:COMMENT"
+
+[[i2b2_transformations]]
+source_col = "name"
+transform_type = "tval"
+concept_cd = "AS:RESSOURCENAME"
+
+[[i2b2_transformations]]
+source_col = "typ"
+transform_type = "tval"
+concept_cd = "AS:RESSOURCETYPE"
+
+[[i2b2_transformations]]
+source_col = "uhralarm"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_ALERT"
+
+[[i2b2_transformations]]
+source_col = "uhr3"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_3"
+
+[[i2b2_transformations]]
+source_col = "uhr4"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_4"
+
+[[i2b2_transformations]]
+source_col = "uhr7"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_7"
+
+[[i2b2_transformations]]
+source_col = "uhr8"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_8"
+
+[[i2b2_transformations]]
+source_col = "uhr1"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_1"
+
+[[i2b2_transformations]]
+source_col = "uhr2"
+transform_type = "tval"
+concept_cd = "AS:CLOCK_2"
+
+# code_transform instructions
+
+[[i2b2_transformations]]
+source_col = "einsatzart"
+transform_type = "code"
+concept_cd_base = "AS:TYPE"
+
+[[i2b2_transformations]]
+# source_col = None (omitted)
+transform_type = "code"
+concept_cd_base = "AS:LOCATION"
+
+[[i2b2_transformations]]
+# source_col = None (omitted)
+transform_type = "code"
+concept_cd_base = "AS:DESTINATION"
+
+# cd_transform instructions
+
+[[i2b2_transformations]]
+source_col = "einsatzort_staat"
+transform_type = "cd"
+concept_cd = "AS:LOCATION"
+modifier_cd = "country"
+
+[[i2b2_transformations]]
+source_col = "einsatzort_bundesland"
+transform_type = "cd"
+concept_cd = "AS:LOCATION"
+modifier_cd = "state"
+
+[[i2b2_transformations]]
+source_col = "einsatzort_ort"
+transform_type = "cd"
+concept_cd = "AS:LOCATION"
+modifier_cd = "city"
+
+[[i2b2_transformations]]
+source_col = "einsatzort_ortsteil"
+transform_type = "cd"
+concept_cd = "AS:LOCATION"
+modifier_cd = "suburb"
+
+[[i2b2_transformations]]
+source_col = "einsatzort_strasse"
+transform_type = "cd"
+concept_cd = "AS:LOCATION"
+modifier_cd = "street"
+
+[[i2b2_transformations]]
+source_col = "einsatzort_hausnummer"
+transform_type = "cd"
+concept_cd = "AS:LOCATION"
+modifier_cd = "houseNummer"
+
+[[i2b2_transformations]]
+source_col = "zielort_staat"
+transform_type = "cd"
+concept_cd = "AS:DESTINATION"
+modifier_cd = "country"
+
+[[i2b2_transformations]]
+source_col = "zielort_bundesland"
+transform_type = "cd"
+concept_cd = "AS:DESTINATION"
+modifier_cd = "state"
+
+[[i2b2_transformations]]
+source_col = "zielort_ort"
+transform_type = "cd"
+concept_cd = "AS:DESTINATION"
+modifier_cd = "city"
+
+[[i2b2_transformations]]
+source_col = "zielort_ortsteil"
+transform_type = "cd"
+concept_cd = "AS:DESTINATION"
+modifier_cd = "suburb"
+
+[[i2b2_transformations]]
+source_col = "zielort_strasse"
+transform_type = "cd"
+concept_cd = "AS:DESTINATION"
+modifier_cd = "street"
+
+[[i2b2_transformations]]
+source_col = "zielort_hausnummer"
+transform_type = "cd"
+concept_cd = "AS:DESTINATION"
+modifier_cd = "houseNummer"
+
+# Metadata
+
+[[i2b2_transformations]]
+# source_col = None (omitted)
+transform_type = "code"
+concept_cd_base = "AS:SCRIPT"
+
+[[i2b2_transformations]]
+# source_col = None (omitted)
+transform_type = "metadata_cd"
+concept_cd = "AS:SCRIPT"
+modifier_cd = "scriptId"
+
+[[i2b2_transformations]]
+# source_col = None (omitted)
+transform_type = "metadata_cd"
+concept_cd = "AS:SCRIPT"
+modifier_cd = "scriptVersion"
