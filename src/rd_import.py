@@ -554,22 +554,37 @@ def delete_from_db(conn, TABLE, transformed_df):
             raise e
 
 
-def upload_into_db(conn: db.Connection, table: db.Table, transformed_df: pd.DataFrame) -> None:
+def upload_into_db(conn, table, transformed_df, batch_size=5000):
     """
-    load all dataframe lines into table
+    Loads dataframe rows into the database table in batches.
     """
-    insert_transaction = conn.begin()
-    try:
-        temp = 5000
-        for i in range(0, len(transformed_df), temp):
-            stapel = transformed_df.iloc[i: i + temp]
-            records = stapel.to_dict(orient="records")
-            if records:
-                conn.execute(table.insert(), records)
-        insert_transaction.commit()
-    except exc.SQLAlchemyError as e:
-        insert_transaction.rollback()
 
+    with conn.begin() as transaction:
+        total_rows = len(transformed_df)
+
+        try:
+            for start_idx in range(0, total_rows, batch_size):
+                end_idx = start_idx + batch_size
+                batch_df = transformed_df.iloc[start_idx:end_idx]
+
+                records = batch_df.to_dict(orient="records")
+
+                if records:
+                    conn.execute(table.insert(), records)
+                    log.debug(f"Inserted batch {start_idx}-{min(end_idx, total_rows)} of {total_rows}")
+
+            transaction.commit()
+            log.info(f"Successfully uploaded {total_rows} records to database.")
+
+        except exc.SQLAlchemyError as e:
+            transaction.rollback()
+            log.error(f"Database insert failed. Transaction rolled back. Error: {e}")
+
+            raise e
+        except Exception as e:
+            transaction.rollback()
+            log.error(f"Unexpected error during upload processing. Transaction rolled back. Error: {e}")
+            raise e
 
 def convert_date_to_i2b2_format(date: str) -> str:
     if len(date) > 19:
