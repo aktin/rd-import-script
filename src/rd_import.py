@@ -274,6 +274,7 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
     return instructions
 
+
 def get_earliest_timestamp_per_row(
         timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
 ) -> pd.Series:
@@ -286,6 +287,7 @@ def get_earliest_timestamp_per_row(
     )
 
     return dt_df.min(axis=1)
+
 
 def assign_instance_number(
         df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
@@ -385,7 +387,7 @@ def metadata_cd_transform(
     but attaches it to the current row's encounter.
     """
     if instruction["modifier_cd"] == "scriptId":
-        value = os.getenv("uuid")
+        value = os.getenv("script_id")
     elif instruction["modifier_cd"] == "scriptVersion":
         value = os.getenv("script_version")
     else:
@@ -508,7 +510,7 @@ def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     result_df = df.copy()
     result_df["update_date"] = pd.Timestamp.now()
     result_df["import_date"] = pd.Timestamp.now()
-    result_df["sourcesystem_cd"] = get_sourcesystem_cd_from_zip(zip_path)
+    result_df["sourcesystem_cd"] = "AS:" + os.getenv("uuid")
     return result_df
 
 
@@ -603,12 +605,6 @@ def upload_into_db(conn, table, transformed_df, batch_size=5000):
                 f"Unexpected error during upload processing. Transaction rolled back. Error: {e}"
             )
             raise e
-
-
-def convert_date_to_i2b2_format(date: str) -> str:
-    if len(date) > 19:
-        date = date[:19]
-    return datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
 
 
 # For testing purposes
