@@ -214,14 +214,6 @@ def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
     }
 
 
-TRANSFORM_DISPATCHER = {
-    "tval": tval_transform,
-    "code": code_transform,
-    "cd": cd_transform,
-    "metadata_cd": metadata_cd_transform,
-}
-
-
 def parse_json_transformations(config: dict) -> list[dict]:
     """
     Converts the concise JSON mapping into the standard list format.
@@ -282,12 +274,18 @@ def dataframe_to_i2b2(df: pd.DataFrame, instructions_list: list, key_cols_map: d
     """
     Apply transformation instructions to all rows in a DataFrame.
     """
+    dispatcher = {
+        "tval": tval_transform,
+        "code": code_transform,
+        "cd": cd_transform,
+        "metadata_cd": metadata_cd_transform,
+    }
     results = []
     for row in df.itertuples(index=False):
         row_dict = dict(zip(df.columns, row))
 
         for instruction in instructions_list:
-            transform_func = TRANSFORM_DISPATCHER.get(instruction["transform_type"])
+            transform_func = dispatcher.get(instruction["transform_type"])
             if not transform_func:
                 log.warning(f"Unknown transform_type: {instruction['transform_type']}")
                 continue
