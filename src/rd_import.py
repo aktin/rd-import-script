@@ -63,6 +63,7 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
 # --- Script ---
 # =============================================================================
 
+
 def main(zip_path: str) -> None:
     if not CONFIG:
         log.error("Configuration not loaded. Aborting.")
@@ -207,7 +208,9 @@ def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     transform_list = parse_json_transformations(file_config)
 
     df["_metadata_start_date"] = get_earliest_timestamp_per_row(df)
-    df = assign_instance_number(df, key_cols["encounter_num"], key_cols["start_date"], file_config)
+    df = assign_instance_number(
+        df, key_cols["encounter_num"], key_cols["start_date"], file_config
+    )
 
     return dataframe_to_i2b2(df, transform_list, key_cols)
 
@@ -276,7 +279,7 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
 
 def get_earliest_timestamp_per_row(
-        timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
+    timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
 ) -> pd.Series:
     """
     Parses a DataFrame of timestamp strings and returns the earliest
@@ -290,7 +293,7 @@ def get_earliest_timestamp_per_row(
 
 
 def assign_instance_number(
-        df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
+    df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
 ) -> pd.DataFrame:
     """
     Assign sequential instance numbers to encounters based on start time.
@@ -380,7 +383,7 @@ def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | Non
 
 
 def metadata_cd_transform(
-        row: dict, instruction: dict, key_cols_map: dict
+    row: dict, instruction: dict, key_cols_map: dict
 ) -> dict | None:
     """
     Generates a 'cd' observation from environment variables,
@@ -430,7 +433,7 @@ def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
 
 
 def dataframe_to_i2b2(
-        df: pd.DataFrame, instructions_list: list, key_cols_map: dict
+    df: pd.DataFrame, instructions_list: list, key_cols_map: dict
 ) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
@@ -625,7 +628,7 @@ def load_env() -> None:
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                                value.startswith('"') and value.endswith('"')
+                            value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
