@@ -6,20 +6,20 @@
 # @ID=rd
 """
 
-      Copyright (c) 2025  AKTIN
+Copyright (c) 2025  AKTIN
 
-      This program is free software: you can redistribute it and/or modify
-      it under the terms of the GNU Affero General Public License as
-      published by the Free Software Foundation, either version 3 of the
-      License, or (at your option) any later version.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
-      This program is distributed in the hope that it will be useful,
-      but WITHOUT ANY WARRANTY; without even the implied warranty of
-      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-      GNU Affero General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
 
-      You should have received a copy of the GNU Affero General Public License
-      along with this program.  If not, see <https://www.gnu.org/licenses/>.
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 import base64
 import hashlib
@@ -43,6 +43,7 @@ from sqlalchemy import exc, tuple_
 # --- CONFIGURATION LOADING ---
 # =============================================================================
 
+
 def load_config(config_path: str = "config.json") -> dict[str, Any]:
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -64,8 +65,7 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
 
 
 def get_earliest_timestamp_per_row(
-        timestamp_df: pd.DataFrame,
-        date_format: str = "%Y%m%d%H%M%S"
+    timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
 ) -> pd.Series:
     """
     Parses a DataFrame of timestamp strings and returns the earliest
@@ -78,7 +78,9 @@ def get_earliest_timestamp_per_row(
     return dt_df.min(axis=1)
 
 
-def assign_instance_number(df: pd.DataFrame, encounter_col: str, start_date_col: str) -> pd.DataFrame:
+def assign_instance_number(
+    df: pd.DataFrame, encounter_col: str, start_date_col: str
+) -> pd.DataFrame:
     """
     Assign sequential instance numbers to encounters based on start time.
 
@@ -166,7 +168,9 @@ def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | Non
     return base
 
 
-def metadata_cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
+def metadata_cd_transform(
+    row: dict, instruction: dict, key_cols_map: dict
+) -> dict | None:
     """
     Generates a 'cd' observation from environment variables,
     but attaches it to the current row's encounter.
@@ -226,52 +230,60 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
         # 1. Simple String -> 'tval'
         if isinstance(instruction, str):
-            instructions.append({
-                "transform_type": "tval",
-                "source_col": col_name,
-                "concept_cd": instruction
-            })
+            instructions.append(
+                {
+                    "transform_type": "tval",
+                    "source_col": col_name,
+                    "concept_cd": instruction,
+                }
+            )
 
         # 2. Object/Dict -> Complex types
         elif isinstance(instruction, dict):
             t_type = instruction.get("type")
 
             if t_type == "code":
-                instructions.append({
-                    "transform_type": "code",
-                    "source_col": col_name,
-                    "concept_cd_base": instruction.get("concept")
-                })
+                instructions.append(
+                    {
+                        "transform_type": "code",
+                        "source_col": col_name,
+                        "concept_cd_base": instruction.get("concept"),
+                    }
+                )
 
             elif t_type == "cd":
-                instructions.append({
-                    "transform_type": "cd",
-                    "source_col": col_name,
-                    "concept_cd": instruction.get("concept"),
-                    "modifier_cd": instruction.get("mod")
-                })
+                instructions.append(
+                    {
+                        "transform_type": "cd",
+                        "source_col": col_name,
+                        "concept_cd": instruction.get("concept"),
+                        "modifier_cd": instruction.get("mod"),
+                    }
+                )
 
             elif t_type == "metadata":
                 # Metadata doesn't use a CSV column, but for consistency
-                instructions.append({
-                    "transform_type": "metadata_cd",
-                    "source_col": None,
-                    "concept_cd": instruction.get("concept"),
-                    "modifier_cd": instruction.get("mod")
-                })
+                instructions.append(
+                    {
+                        "transform_type": "metadata_cd",
+                        "source_col": None,
+                        "concept_cd": instruction.get("concept"),
+                        "modifier_cd": instruction.get("mod"),
+                    }
+                )
 
     # 3. Static Concepts
     for concept in statics:
-        instructions.append({
-            "transform_type": "code",
-            "source_col": None,
-            "concept_cd_base": concept
-        })
+        instructions.append(
+            {"transform_type": "code", "source_col": None, "concept_cd_base": concept}
+        )
 
     return instructions
 
 
-def dataframe_to_i2b2(df: pd.DataFrame, instructions_list: list, key_cols_map: dict) -> pd.DataFrame:
+def dataframe_to_i2b2(
+    df: pd.DataFrame, instructions_list: list, key_cols_map: dict
+) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
     """
@@ -511,8 +523,7 @@ def load(transformed_df: pd.DataFrame) -> None:
     pattern = r"jdbc:postgresql://(.*?)(\?searchPath=.*)?$"
     connection = re.search(pattern, i2b2_connection_url).group(1)
     engine = db.create_engine(
-        f"postgresql+psycopg2://{username}:{password}@{connection}",
-        pool_pre_ping=True
+        f"postgresql+psycopg2://{username}:{password}@{connection}", pool_pre_ping=True
     )
     with engine.connect() as conn:
         table = db.Table("observation_fact", db.MetaData(), autoload_with=engine)
@@ -540,7 +551,11 @@ def delete_from_db(conn, TABLE, transformed_df):
             stmt = (
                 TABLE.delete()
                 .where(TABLE.c.sourcesystem_cd.like("AS%"))
-                .where(tuple_(TABLE.c.encounter_num, TABLE.c.concept_cd).in_(keys_to_delete))
+                .where(
+                    tuple_(TABLE.c.encounter_num, TABLE.c.concept_cd).in_(
+                        keys_to_delete
+                    )
+                )
             )
 
             result = conn.execute(stmt)
@@ -550,7 +565,9 @@ def delete_from_db(conn, TABLE, transformed_df):
 
         except exc.SQLAlchemyError as e:
             transaction.rollback()
-            log.error(f"Database error occurred. Transaction rolled back. Database state preserved. Error: {e}")
+            log.error(
+                f"Database error occurred. Transaction rolled back. Database state preserved. Error: {e}"
+            )
             raise e
 
 
@@ -571,7 +588,9 @@ def upload_into_db(conn, table, transformed_df, batch_size=5000):
 
                 if records:
                     conn.execute(table.insert(), records)
-                    log.debug(f"Inserted batch {start_idx}-{min(end_idx, total_rows)} of {total_rows}")
+                    log.debug(
+                        f"Inserted batch {start_idx}-{min(end_idx, total_rows)} of {total_rows}"
+                    )
 
             transaction.commit()
             log.info(f"Successfully uploaded {total_rows} records to database.")
@@ -583,8 +602,11 @@ def upload_into_db(conn, table, transformed_df, batch_size=5000):
             raise e
         except Exception as e:
             transaction.rollback()
-            log.error(f"Unexpected error during upload processing. Transaction rolled back. Error: {e}")
+            log.error(
+                f"Unexpected error during upload processing. Transaction rolled back. Error: {e}"
+            )
             raise e
+
 
 def convert_date_to_i2b2_format(date: str) -> str:
     if len(date) > 19:
@@ -610,7 +632,7 @@ def load_env() -> None:
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                                value.startswith('"') and value.endswith('"')
+                            value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
