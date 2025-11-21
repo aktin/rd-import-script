@@ -28,7 +28,7 @@ import os
 import re
 import sys
 import tempfile
-import tomllib  # Requires Python 3.11+
+import json
 import zipfile
 from datetime import datetime
 from pathlib import Path, PosixPath
@@ -43,23 +43,24 @@ from sqlalchemy import exc
 # --- CONFIGURATION LOADING ---
 # =============================================================================
 
-def load_config(config_path: str = "config.toml") -> dict[str, Any]:
+def load_config(config_path: str = "config.json") -> dict[str, Any]:
     try:
-        with open(config_path, "rb") as f:
-            return tomllib.load(f)
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
     except FileNotFoundError:
-        if os.path.exists(os.path.join("..", config_path)):
-            with open(os.path.join("..", config_path), "rb") as f:
-                return tomllib.load(f)
+        # Try looking one directory up
+        parent_path = os.path.join("..", config_path)
+        if os.path.exists(parent_path):
+            with open(parent_path, "r", encoding="utf-8") as f:
+                return json.load(f)
         raise FileNotFoundError(f"Configuration file '{config_path}' not found.")
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse TOML configuration: {e}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse JSON configuration: {e}")
 
 
 # =============================================================================
 # --- Script ---
 # =============================================================================
-
 
 
 def get_earliest_timestamp_per_row(
@@ -220,6 +221,62 @@ TRANSFORM_DISPATCHER = {
     "metadata_cd": metadata_cd_transform,
 }
 
+
+def parse_json_transformations(config: dict) -> list[dict]:
+    """
+    Converts the concise JSON mapping into the standard list format.
+    """
+    mapping = config.get("transformations", {})
+    statics = config.get("static_concepts", [])
+    instructions = []
+
+    for col_name, instruction in mapping.items():
+
+        # 1. Simple String -> 'tval'
+        if isinstance(instruction, str):
+            instructions.append({
+                "transform_type": "tval",
+                "source_col": col_name,
+                "concept_cd": instruction
+            })
+
+        # 2. Object/Dict -> Complex types
+        elif isinstance(instruction, dict):
+            t_type = instruction.get("type")
+
+            if t_type == "code":
+                instructions.append({
+                    "transform_type": "code",
+                    "source_col": col_name,
+                    "concept_cd_base": instruction.get("concept")
+                })
+
+            elif t_type == "cd":
+                instructions.append({
+                    "transform_type": "cd",
+                    "source_col": col_name,
+                    "concept_cd": instruction.get("concept"),
+                    "modifier_cd": instruction.get("mod")
+                })
+
+            elif t_type == "metadata":
+                # Metadata doesn't use a CSV column, but for consistency
+                instructions.append({
+                    "transform_type": "metadata_cd",
+                    "source_col": None,
+                    "concept_cd": instruction.get("concept"),
+                    "modifier_cd": instruction.get("mod")
+                })
+
+    # 3. Static Concepts
+    for concept in statics:
+        instructions.append({
+            "transform_type": "code",
+            "source_col": None,
+            "concept_cd_base": concept
+        })
+
+    return instructions
 
 def dataframe_to_i2b2(df: pd.DataFrame, instructions_list: list, key_cols_map: dict) -> pd.DataFrame:
     """
@@ -408,6 +465,7 @@ def check_clock_values(df: pd.DataFrame, clock_columns: list) -> pd.DataFrame:
         df = df.loc[~missing_all_clocks].reset_index(drop=True)
     return df
 
+
 def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> None:
     """
     Validate DataFrame columns against regex patterns.
@@ -438,9 +496,7 @@ def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> None:
 
 def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     key_cols = CONFIG["i2b2_key_columns"]
-    transform_list = CONFIG["i2b2_transformations"]
-
-    clock_cols = file_config["clock_columns"]
+    transform_list = parse_json_transformations(CONFIG)
 
     df["_metadata_start_date"] = get_earliest_timestamp_per_row(df)
     df = assign_instance_number(df, key_cols["encounter_num"], key_cols["start_date"])
