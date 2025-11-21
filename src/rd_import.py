@@ -23,12 +23,12 @@
 """
 import base64
 import hashlib
+import json
 import logging
 import os
 import re
 import sys
 import tempfile
-import json
 import zipfile
 from datetime import datetime
 from pathlib import Path, PosixPath
@@ -270,6 +270,7 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
     return instructions
 
+
 def dataframe_to_i2b2(df: pd.DataFrame, instructions_list: list, key_cols_map: dict) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
@@ -503,24 +504,20 @@ def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
 
 
 def load(transformed_df: pd.DataFrame) -> None:
-    # establish database conncetion
-    USERNAME = os.environ["username"]
-    PASSWORD = os.environ["password"]
-    I2B2_CONNECTION_URL = os.environ["connection-url"]
+    # Establish database conncetion
+    username = os.environ["username"]
+    password = os.environ["password"]
+    i2b2_connection_url = os.environ["connection-url"]
     pattern = r"jdbc:postgresql://(.*?)(\?searchPath=.*)?$"
-    connection = re.search(pattern, I2B2_CONNECTION_URL).group(1)
-    ENGINE = db.create_engine(
-        f"postgresql+psycopg2://{USERNAME}:{PASSWORD}@{connection}", pool_pre_ping=True
+    connection = re.search(pattern, i2b2_connection_url).group(1)
+    engine = db.create_engine(
+        f"postgresql+psycopg2://{username}:{password}@{connection}",
+        pool_pre_ping=True
     )
-    conn = ENGINE.connect()
-    TABLE = db.Table("observation_fact", db.MetaData(), autoload_with=ENGINE)
-
-    delete_from_db(conn, TABLE, transformed_df)
-    upload_into_db(conn, TABLE, transformed_df)
-
-    # cut db connection
-    conn.close()
-    ENGINE.dispose()
+    with engine.connect() as conn:
+        table = db.Table("observation_fact", db.MetaData(), autoload_with=engine)
+        delete_from_db(conn, table, transformed_df)
+        upload_into_db(conn, table, transformed_df)
 
 
 def delete_from_db(conn, TABLE, transformed_df):
