@@ -36,7 +36,7 @@ from typing import Any
 
 import pandas as pd
 import sqlalchemy as db
-from sqlalchemy import exc
+from sqlalchemy import exc, tuple_
 
 
 # =============================================================================
@@ -522,40 +522,36 @@ def load(transformed_df: pd.DataFrame) -> None:
 
 def delete_from_db(conn, TABLE, transformed_df):
     """
-    delete existing combinations of encounter_nums/start_date/concept_cd from TABLE
+    Bulk deletes existing records from TABLE based on encounter_num and concept_cd
+    within the 'AS' source system scope.
     """
-    transaction = conn.begin()
-    try:
-        unique_combinations = (
-            transformed_df[["encounter_num", "start_date", "concept_cd"]]
-            .drop_duplicates()
-            .to_dict(orient="records")
-        )
+    keys_to_delete = (
+        transformed_df[["encounter_num", "concept_cd"]]
+        .drop_duplicates()
+        .values.tolist()
+    )
 
-        if unique_combinations:
-            for row in unique_combinations:
-                encounter = row["encounter_num"]
-                # TODO: Remove function, because already done in previous step
-                # date_i2b2 = convert_date_to_i2b2_format(str(row["start_date"]))
-                date_i2b2 = row["start_date"]
-                concept = row["concept_cd"]
+    if not keys_to_delete:
+        log.info("No records to delete.")
+        return
 
-                statement = (
-                    TABLE.delete()
-                    .where(TABLE.c["encounter_num"] == encounter)
-                    .where(TABLE.c["start_date"] == date_i2b2)
-                )
-                statement = (
-                    statement.where(TABLE.c["concept_cd"] == concept)
-                    if concept
-                    else statement
-                )
+    with conn.begin() as transaction:
+        try:
+            stmt = (
+                TABLE.delete()
+                .where(TABLE.c.sourcesystem_cd.like("AS%"))
+                .where(tuple_(TABLE.c.encounter_num, TABLE.c.concept_cd).in_(keys_to_delete))
+            )
 
-                conn.execute(statement)
+            result = conn.execute(stmt)
+            log.info(f"Successfully deleted {result.rowcount} rows from database.")
 
-        transaction.commit()
-    except exc.SQLAlchemyError as e:
-        transaction.rollback()
+            transaction.commit()
+
+        except exc.SQLAlchemyError as e:
+            transaction.rollback()
+            log.error(f"Database error occurred. Transaction rolled back. Database state preserved. Error: {e}")
+            raise e
 
 
 def upload_into_db(conn: db.Connection, table: db.Table, transformed_df: pd.DataFrame) -> None:
