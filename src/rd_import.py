@@ -63,305 +63,6 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
 # --- Script ---
 # =============================================================================
 
-
-def get_earliest_timestamp_per_row(
-    timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
-) -> pd.Series:
-    """
-    Parses a DataFrame of timestamp strings and returns the earliest
-    timestamp for each row as a datetime object.
-    """
-    dt_df = timestamp_df.apply(
-        lambda col: pd.to_datetime(col, format=date_format, errors="coerce")
-    )
-
-    return dt_df.min(axis=1)
-
-
-def assign_instance_number(
-    df: pd.DataFrame, encounter_col: str, start_date_col: str
-) -> pd.DataFrame:
-    """
-    Assign sequential instance numbers to encounters based on start time.
-
-    Args:
-        df: Input DataFrame.
-        encounter_col: Column name representing encounter ID.
-        start_date_col: Column name representing start date.
-
-    Returns:
-        DataFrame with a new column for instance numbering.
-    """
-    df[start_date_col] = pd.to_datetime(df[start_date_col])
-    df = df.sort_values([encounter_col, start_date_col])
-
-    instance_num_col = CONFIG["i2b2_key_columns"]["instance_num"]
-    df[instance_num_col] = df.groupby(encounter_col).cumcount() + 1
-    return df
-
-
-def tval_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
-    """
-    Transform a single row into a 'tval' i2b2 observation.
-    """
-    source_col = instruction.get("source_col")
-
-    if not source_col:
-        return None
-
-    value = row.get(source_col)
-    if pd.isna(value) or value == "":
-        return None
-
-    base = base_i2b2_row(row, key_cols_map)
-    base.update(
-        {
-            "concept_cd": instruction["concept_cd"],
-            "valtype": "T",
-            "tval_char": value,
-        }
-    )
-    return base
-
-
-def code_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict:
-    """
-    Transform a row into a 'code' i2b2 observation.
-    """
-    source_col = instruction.get("source_col")  # Safe access for TOML compatibility
-
-    code = row.get(source_col) if source_col else None
-    concept_cd_base = instruction["concept_cd_base"]
-
-    base = base_i2b2_row(row, key_cols_map)
-    concept_cd = (
-        f"{concept_cd_base}"
-        if (pd.isna(code) or code == "")
-        else f"{concept_cd_base}:{code}"
-    )
-    base.update({"concept_cd": concept_cd, "valtype": "@", "valueflag_cd": "@"})
-    return base
-
-
-def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
-    """
-    Transform a row into a 'cd' i2b2 observation (concept + modifier). Handle metadata.
-    """
-    source_col = instruction.get("source_col")  # Safe access for TOML compatibility
-
-    if not source_col:
-        return None
-
-    tval_char = row.get(source_col)
-    if pd.isna(tval_char) or tval_char == "":
-        return None
-
-    base = base_i2b2_row(row, key_cols_map)
-    base.update(
-        {
-            "concept_cd": instruction["concept_cd"],
-            "modifier_cd": instruction["modifier_cd"],
-            "valtype": "T",
-            "tval_char": tval_char,
-        }
-    )
-    return base
-
-
-def metadata_cd_transform(
-    row: dict, instruction: dict, key_cols_map: dict
-) -> dict | None:
-    """
-    Generates a 'cd' observation from environment variables,
-    but attaches it to the current row's encounter.
-    """
-    if instruction["modifier_cd"] == "scriptId":
-        value = os.getenv("uuid")
-    elif instruction["modifier_cd"] == "scriptVersion":
-        value = os.getenv("script_version")
-    else:
-        log.warning(f"Unknown metadata modifier: {instruction['modifier_cd']}")
-        return None
-
-    if not value:
-        log.warning(f"Environment variable for {instruction['modifier_cd']} not set.")
-        return None
-
-    base = base_i2b2_row(row, key_cols_map)
-    base.update(
-        {
-            "concept_cd": instruction["concept_cd"],
-            "modifier_cd": instruction["modifier_cd"],
-            "valtype": "T",
-            "tval_char": value,
-        }
-    )
-    return base
-
-
-def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
-    return {
-        "encounter_num": row.get(key_cols_map["encounter_num"]),
-        "patient_num": row.get(key_cols_map["patient_num"]),
-        "provider_id": "@",
-        "start_date": row.get(key_cols_map["start_date"]),
-        "modifier_cd": "@",
-        "instance_num": row.get(key_cols_map.get("instance_num"), 1),
-        "valtype": "",
-        "tval_char": "",
-        "valueflag_cd": "",
-        "units_cd": "@",
-        "location_cd": "@",
-        "observation_blob": "",
-        "update_date": "",
-        "import_date": "",
-    }
-
-
-def parse_json_transformations(config: dict) -> list[dict]:
-    """
-    Converts the concise JSON mapping into the standard list format.
-    """
-    mapping = config.get("transformations", {})
-    statics = config.get("static_concepts", [])
-    instructions = []
-
-    for col_name, instruction in mapping.items():
-
-        # 1. Simple String -> 'tval'
-        if isinstance(instruction, str):
-            instructions.append(
-                {
-                    "transform_type": "tval",
-                    "source_col": col_name,
-                    "concept_cd": instruction,
-                }
-            )
-
-        # 2. Object/Dict -> Complex types
-        elif isinstance(instruction, dict):
-            t_type = instruction.get("type")
-
-            if t_type == "code":
-                instructions.append(
-                    {
-                        "transform_type": "code",
-                        "source_col": col_name,
-                        "concept_cd_base": instruction.get("concept"),
-                    }
-                )
-
-            elif t_type == "cd":
-                instructions.append(
-                    {
-                        "transform_type": "cd",
-                        "source_col": col_name,
-                        "concept_cd": instruction.get("concept"),
-                        "modifier_cd": instruction.get("mod"),
-                    }
-                )
-
-            elif t_type == "metadata":
-                # Metadata doesn't use a CSV column, but for consistency
-                instructions.append(
-                    {
-                        "transform_type": "metadata_cd",
-                        "source_col": None,
-                        "concept_cd": instruction.get("concept"),
-                        "modifier_cd": instruction.get("mod"),
-                    }
-                )
-
-    # 3. Static Concepts
-    for concept in statics:
-        instructions.append(
-            {"transform_type": "code", "source_col": None, "concept_cd_base": concept}
-        )
-
-    return instructions
-
-
-def dataframe_to_i2b2(
-    df: pd.DataFrame, instructions_list: list, key_cols_map: dict
-) -> pd.DataFrame:
-    """
-    Apply transformation instructions to all rows in a DataFrame.
-    """
-    dispatcher = {
-        "tval": tval_transform,
-        "code": code_transform,
-        "cd": cd_transform,
-        "metadata_cd": metadata_cd_transform,
-    }
-    results = []
-    for row in df.itertuples(index=False):
-        row_dict = dict(zip(df.columns, row))
-
-        for instruction in instructions_list:
-            transform_func = dispatcher.get(instruction["transform_type"])
-            if not transform_func:
-                log.warning(f"Unknown transform_type: {instruction['transform_type']}")
-                continue
-
-            transformed = transform_func(row_dict, instruction, key_cols_map)
-            if transformed:
-                results.append(transformed)
-
-    return pd.DataFrame(results)
-
-
-def extract_zip_into_tmp_dir(zip_path: str) -> Path:
-    zip_path = Path(zip_path)
-    if not zip_path.is_file():
-        raise FileNotFoundError(f"Error: file {zip_path} does not exist")
-
-    temp_dir = Path(tempfile.gettempdir())
-    extract_dir = temp_dir / zip_path.stem
-
-    try:
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zip_path, "r") as zip_file:
-            zip_file.extractall(extract_dir)
-    except zipfile.BadZipFile as e:
-        raise RuntimeError(f"Error: file {zip_path} does not contain a zip file") from e
-    except Exception as e:
-        raise RuntimeError(f"Error: an unexpected error occurred") from e
-
-    return extract_dir
-
-
-def get_sourcesystem_cd_from_zip(filepath: str, prefix: str = "AS:") -> str | None:
-    """
-    Calculates the SHA-256 hash of a file, encodes it in
-    URL-safe Base64, and prepends the given prefix.
-
-    This format is secure and fits within a VARCHAR(50) field.
-    (3-char prefix + 44-char hash = 47 chars)
-    """
-
-    sha256_hash = hashlib.sha256()
-
-    try:
-        with open(filepath, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096 * 1024), b""):
-                sha256_hash.update(byte_block)
-
-        hash_bytes = sha256_hash.digest()
-        base64_hash_bytes = base64.urlsafe_b64encode(hash_bytes)
-        base64_hash_str = base64_hash_bytes.decode("utf-8")
-        final_hash = base64_hash_str.rstrip("=")
-        final_sourcesystem_cd = f"{prefix}{final_hash}"
-
-        return final_sourcesystem_cd
-
-    except FileNotFoundError:
-        log.error(f"Error: file {filepath} does not exist")
-        return None
-    except Exception as e:
-        log.error(f"An unexpected error occurred: {e}")
-        return None
-
-
 def main(zip_path: str) -> None:
     if not CONFIG:
         log.error("Configuration not loaded. Aborting.")
@@ -391,28 +92,24 @@ def main(zip_path: str) -> None:
         log.info(f"Successfully loaded data for {filename}.")
 
 
-def convert_values_to_i2b2_format(df: pd.DataFrame) -> pd.DataFrame:
-    date_columns = ["start_date", "update_date", "import_date"]
-    result_df = df.copy()
-    for column in date_columns:
-        result_df[column] = (
-            result_df[column]
-            .astype(str)
-            .apply(
-                lambda x: datetime.strptime(x[:19], "%Y-%m-%d %H:%M:%S").strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-            )
-        )
-    return result_df
+def extract_zip_into_tmp_dir(zip_path: str) -> Path:
+    zip_path = Path(zip_path)
+    if not zip_path.is_file():
+        raise FileNotFoundError(f"Error: file {zip_path} does not exist")
 
+    temp_dir = Path(tempfile.gettempdir())
+    extract_dir = temp_dir / zip_path.stem
 
-def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
-    result_df = df.copy()
-    result_df["update_date"] = pd.Timestamp.now()
-    result_df["import_date"] = pd.Timestamp.now()
-    result_df["sourcesystem_cd"] = get_sourcesystem_cd_from_zip(zip_path)
-    return result_df
+    try:
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zip_file:
+            zip_file.extractall(extract_dir)
+    except zipfile.BadZipFile as e:
+        raise RuntimeError(f"Error: file {zip_path} does not contain a zip file") from e
+    except Exception as e:
+        raise RuntimeError(f"Error: an unexpected error occurred") from e
+
+    return extract_dir
 
 
 def load_csv_into_df(filepath: PosixPath) -> pd.DataFrame:
@@ -506,13 +203,313 @@ def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> None:
 
 
 def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
-    key_cols = CONFIG["i2b2_key_columns"]
-    transform_list = parse_json_transformations(CONFIG)
+    key_cols = file_config["i2b2_key_columns"]
+    transform_list = parse_json_transformations(file_config)
 
     df["_metadata_start_date"] = get_earliest_timestamp_per_row(df)
-    df = assign_instance_number(df, key_cols["encounter_num"], key_cols["start_date"])
+    df = assign_instance_number(df, key_cols["encounter_num"], key_cols["start_date"], file_config)
 
     return dataframe_to_i2b2(df, transform_list, key_cols)
+
+
+def parse_json_transformations(config: dict) -> list[dict]:
+    """
+    Converts the concise JSON mapping into the standard list format.
+    """
+    mapping = config.get("transformations", {})
+    statics = config.get("static_concepts", [])
+    instructions = []
+
+    for col_name, instruction in mapping.items():
+
+        # 1. Simple String -> 'tval'
+        if isinstance(instruction, str):
+            instructions.append(
+                {
+                    "transform_type": "tval",
+                    "source_col": col_name,
+                    "concept_cd": instruction,
+                }
+            )
+
+        # 2. Object/Dict -> Complex types
+        elif isinstance(instruction, dict):
+            t_type = instruction.get("type")
+
+            if t_type == "code":
+                instructions.append(
+                    {
+                        "transform_type": "code",
+                        "source_col": col_name,
+                        "concept_cd_base": instruction.get("concept"),
+                    }
+                )
+
+            elif t_type == "cd":
+                instructions.append(
+                    {
+                        "transform_type": "cd",
+                        "source_col": col_name,
+                        "concept_cd": instruction.get("concept"),
+                        "modifier_cd": instruction.get("mod"),
+                    }
+                )
+
+            elif t_type == "metadata":
+                # Metadata doesn't use a CSV column, but for consistency
+                instructions.append(
+                    {
+                        "transform_type": "metadata_cd",
+                        "source_col": None,
+                        "concept_cd": instruction.get("concept"),
+                        "modifier_cd": instruction.get("mod"),
+                    }
+                )
+
+    # 3. Static Concepts
+    for concept in statics:
+        instructions.append(
+            {"transform_type": "code", "source_col": None, "concept_cd_base": concept}
+        )
+
+    return instructions
+
+def get_earliest_timestamp_per_row(
+        timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
+) -> pd.Series:
+    """
+    Parses a DataFrame of timestamp strings and returns the earliest
+    timestamp for each row as a datetime object.
+    """
+    dt_df = timestamp_df.apply(
+        lambda col: pd.to_datetime(col, format=date_format, errors="coerce")
+    )
+
+    return dt_df.min(axis=1)
+
+def assign_instance_number(
+        df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
+) -> pd.DataFrame:
+    """
+    Assign sequential instance numbers to encounters based on start time.
+
+    Args:
+        df: Input DataFrame.
+        encounter_col: Column name representing encounter ID.
+        start_date_col: Column name representing start date.
+
+    Returns:
+        DataFrame with a new column for instance numbering.
+    """
+    df[start_date_col] = pd.to_datetime(df[start_date_col])
+    df = df.sort_values([encounter_col, start_date_col])
+
+    instance_num_col = file_config["i2b2_key_columns"]["instance_num"]
+    df[instance_num_col] = df.groupby(encounter_col).cumcount() + 1
+    return df
+
+
+def tval_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
+    """
+    Transform a single row into a 'tval' i2b2 observation.
+    """
+    source_col = instruction.get("source_col")
+
+    if not source_col:
+        return None
+
+    value = row.get(source_col)
+    if pd.isna(value) or value == "":
+        return None
+
+    base = base_i2b2_row(row, key_cols_map)
+    base.update(
+        {
+            "concept_cd": instruction["concept_cd"],
+            "valtype": "T",
+            "tval_char": value,
+        }
+    )
+    return base
+
+
+def code_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict:
+    """
+    Transform a row into a 'code' i2b2 observation.
+    """
+    source_col = instruction.get("source_col")  # Safe access for TOML compatibility
+
+    code = row.get(source_col) if source_col else None
+    concept_cd_base = instruction["concept_cd_base"]
+
+    base = base_i2b2_row(row, key_cols_map)
+    concept_cd = (
+        f"{concept_cd_base}"
+        if (pd.isna(code) or code == "")
+        else f"{concept_cd_base}:{code}"
+    )
+    base.update({"concept_cd": concept_cd, "valtype": "@", "valueflag_cd": "@"})
+    return base
+
+
+def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
+    """
+    Transform a row into a 'cd' i2b2 observation (concept + modifier). Handle metadata.
+    """
+    source_col = instruction.get("source_col")  # Safe access for TOML compatibility
+
+    if not source_col:
+        return None
+
+    tval_char = row.get(source_col)
+    if pd.isna(tval_char) or tval_char == "":
+        return None
+
+    base = base_i2b2_row(row, key_cols_map)
+    base.update(
+        {
+            "concept_cd": instruction["concept_cd"],
+            "modifier_cd": instruction["modifier_cd"],
+            "valtype": "T",
+            "tval_char": tval_char,
+        }
+    )
+    return base
+
+
+def metadata_cd_transform(
+        row: dict, instruction: dict, key_cols_map: dict
+) -> dict | None:
+    """
+    Generates a 'cd' observation from environment variables,
+    but attaches it to the current row's encounter.
+    """
+    if instruction["modifier_cd"] == "scriptId":
+        value = os.getenv("uuid")
+    elif instruction["modifier_cd"] == "scriptVersion":
+        value = os.getenv("script_version")
+    else:
+        log.warning(f"Unknown metadata modifier: {instruction['modifier_cd']}")
+        return None
+
+    if not value:
+        log.warning(f"Environment variable for {instruction['modifier_cd']} not set.")
+        return None
+
+    base = base_i2b2_row(row, key_cols_map)
+    base.update(
+        {
+            "concept_cd": instruction["concept_cd"],
+            "modifier_cd": instruction["modifier_cd"],
+            "valtype": "T",
+            "tval_char": value,
+        }
+    )
+    return base
+
+
+def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
+    return {
+        "encounter_num": row.get(key_cols_map["encounter_num"]),
+        "patient_num": row.get(key_cols_map["patient_num"]),
+        "provider_id": "@",
+        "start_date": row.get(key_cols_map["start_date"]),
+        "modifier_cd": "@",
+        "instance_num": row.get(key_cols_map.get("instance_num"), 1),
+        "valtype": "",
+        "tval_char": "",
+        "valueflag_cd": "",
+        "units_cd": "@",
+        "location_cd": "@",
+        "observation_blob": "",
+        "update_date": "",
+        "import_date": "",
+    }
+
+
+def dataframe_to_i2b2(
+        df: pd.DataFrame, instructions_list: list, key_cols_map: dict
+) -> pd.DataFrame:
+    """
+    Apply transformation instructions to all rows in a DataFrame.
+    """
+    dispatcher = {
+        "tval": tval_transform,
+        "code": code_transform,
+        "cd": cd_transform,
+        "metadata_cd": metadata_cd_transform,
+    }
+    results = []
+    for row in df.itertuples(index=False):
+        row_dict = dict(zip(df.columns, row))
+
+        for instruction in instructions_list:
+            transform_func = dispatcher.get(instruction["transform_type"])
+            if not transform_func:
+                log.warning(f"Unknown transform_type: {instruction['transform_type']}")
+                continue
+
+            transformed = transform_func(row_dict, instruction, key_cols_map)
+            if transformed:
+                results.append(transformed)
+
+    return pd.DataFrame(results)
+
+
+def get_sourcesystem_cd_from_zip(filepath: str, prefix: str = "AS:") -> str | None:
+    """
+    Calculates the SHA-256 hash of a file, encodes it in
+    URL-safe Base64, and prepends the given prefix.
+
+    This format is secure and fits within a VARCHAR(50) field.
+    (3-char prefix + 44-char hash = 47 chars)
+    """
+
+    sha256_hash = hashlib.sha256()
+
+    try:
+        with open(filepath, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096 * 1024), b""):
+                sha256_hash.update(byte_block)
+
+        hash_bytes = sha256_hash.digest()
+        base64_hash_bytes = base64.urlsafe_b64encode(hash_bytes)
+        base64_hash_str = base64_hash_bytes.decode("utf-8")
+        final_hash = base64_hash_str.rstrip("=")
+        final_sourcesystem_cd = f"{prefix}{final_hash}"
+
+        return final_sourcesystem_cd
+
+    except FileNotFoundError:
+        log.error(f"Error: file {filepath} does not exist")
+        return None
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}")
+        return None
+
+
+def convert_values_to_i2b2_format(df: pd.DataFrame) -> pd.DataFrame:
+    date_columns = ["start_date", "update_date", "import_date"]
+    result_df = df.copy()
+    for column in date_columns:
+        result_df[column] = (
+            result_df[column]
+            .astype(str)
+            .apply(
+                lambda x: datetime.strptime(x[:19], "%Y-%m-%d %H:%M:%S").strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            )
+        )
+    return result_df
+
+
+def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
+    result_df = df.copy()
+    result_df["update_date"] = pd.Timestamp.now()
+    result_df["import_date"] = pd.Timestamp.now()
+    result_df["sourcesystem_cd"] = get_sourcesystem_cd_from_zip(zip_path)
+    return result_df
 
 
 def load(transformed_df: pd.DataFrame) -> None:
@@ -632,7 +629,7 @@ def load_env() -> None:
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                            value.startswith('"') and value.endswith('"')
+                                value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 

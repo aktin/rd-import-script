@@ -2,50 +2,98 @@
   "files": {
     "einsatzdaten": {
       "filename": "einsatzdaten.csv",
-      "mandatory_columns": ["einsatznummer", "einsatzart", "einsatzstichwort"],
-      "clock_columns": [
-        "uhr_erstes_klingeln", "uhr_annahme", "uhr3", "uhr4",
-        "uhr7", "uhr8", "uhr1", "uhr2"
+      "mandatory_columns": [
+        "einsatznummer",
+        "einsatzart",
+        "einsatzstichwort"
       ],
-      "integer_cleanup_columns": ["einsatzort_hausnummer", "zielort_hausnummer"],
+      "clock_columns": [
+        "uhr_erstes_klingeln",
+        "uhr_annahme",
+        "uhr3",
+        "uhr4",
+        "uhr7",
+        "uhr8",
+        "uhr1",
+        "uhr2"
+      ],
+      "integer_cleanup_columns": [
+        "einsatzort_hausnummer",
+        "zielort_hausnummer"
+      ],
       "regex_patterns": {
         "einsatznummer": "^1(2[3-9]|[3-9]\\d)0\\d{6}$",
         "einsatzart": "^(A\\d{2}|[AFHKLNPTUÜ])$",
         "uhr_erstes_klingeln": "^\\d{14}$",
         "uhr_annahme": "^\\d{14}$",
         "typ": "^(?:$|\\d+(?:-\\d+)?|(?:KTW|RTW|RWT|NEF|LNA|LF|HLF|KLF|GW|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW|PERSONAL)(?: ?\\d+(?:-\\d+)?)?)$"
+      },
+      "i2b2_key_columns": {
+        "encounter_num": "einsatznummer",
+        "patient_num": "einsatznummer",
+        "start_date": "_metadata_start_date",
+        "instance_num": "_metadata_instance_num"
+      },
+      "static_concepts": [
+        "AS:LOCATION",
+        "AS:DESTINATION",
+        "AS:SCRIPT"
+      ],
+      "transformations": {
+        "einsatznummer": "AS:ID",
+        "einsatzstichwort": "AS:KEYWORD",
+        "einsatzstichwort_text": "AS:KEYWORDTXT",
+        "uhr_erstes_klingeln": "AS:CLOCK_FIRSTRING",
+        "uhr_annahme": "AS:CLOCK_ACCEPT",
+        "diagnose": "AS:DIAGNOSE",
+        "bemerkung": "AS:COMMENT",
+        "name": "AS:RESSOURCENAME",
+        "typ": "AS:RESSOURCETYPE",
+        "einsatzart": {
+          "type": "code",
+          "concept": "AS:TYPE"
+        },
+        "einsatzort_staat": {
+          "type": "cd",
+          "concept": "AS:LOCATION",
+          "mod": "country"
+        },
+        "einsatzort_bundesland": {
+          "type": "cd",
+          "concept": "AS:LOCATION",
+          "mod": "state"
+        },
+        "einsatzort_ort": {
+          "type": "cd",
+          "concept": "AS:LOCATION",
+          "mod": "city"
+        },
+        "einsatzort_strasse": {
+          "type": "cd",
+          "concept": "AS:LOCATION",
+          "mod": "street"
+        },
+        "zielort_staat": {
+          "type": "cd",
+          "concept": "AS:DESTINATION",
+          "mod": "country"
+        },
+        "zielort_ort": {
+          "type": "cd",
+          "concept": "AS:DESTINATION",
+          "mod": "city"
+        },
+        "env_script_id": {
+          "type": "metadata",
+          "concept": "AS:SCRIPT",
+          "mod": "scriptId"
+        },
+        "env_script_version": {
+          "type": "metadata",
+          "concept": "AS:SCRIPT",
+          "mod": "scriptVersion"
+        }
       }
     }
-  },
-  "i2b2_key_columns": {
-    "encounter_num": "einsatznummer",
-    "patient_num": "einsatznummer",
-    "start_date": "_metadata_start_date",
-    "instance_num": "_metadata_instance_num"
-  },
-  "static_concepts": ["AS:LOCATION", "AS:DESTINATION", "AS:SCRIPT"],
-  "transformations": {
-    "einsatznummer": "AS:ID",
-    "einsatzstichwort": "AS:KEYWORD",
-    "einsatzstichwort_text": "AS:KEYWORDTXT",
-    "uhr_erstes_klingeln": "AS:CLOCK_FIRSTRING",
-    "uhr_annahme": "AS:CLOCK_ACCEPT",
-    "diagnose": "AS:DIAGNOSE",
-    "bemerkung": "AS:COMMENT",
-    "name": "AS:RESSOURCENAME",
-    "typ": "AS:RESSOURCETYPE",
-
-    "einsatzart": { "type": "code", "concept": "AS:TYPE" },
-
-    "einsatzort_staat":      { "type": "cd", "concept": "AS:LOCATION", "mod": "country" },
-    "einsatzort_bundesland": { "type": "cd", "concept": "AS:LOCATION", "mod": "state" },
-    "einsatzort_ort":        { "type": "cd", "concept": "AS:LOCATION", "mod": "city" },
-    "einsatzort_strasse":    { "type": "cd", "concept": "AS:LOCATION", "mod": "street" },
-
-    "zielort_staat":         { "type": "cd", "concept": "AS:DESTINATION", "mod": "country" },
-    "zielort_ort":           { "type": "cd", "concept": "AS:DESTINATION", "mod": "city" },
-
-    "env_script_id":      { "type": "metadata", "concept": "AS:SCRIPT", "mod": "scriptId" },
-    "env_script_version": { "type": "metadata", "concept": "AS:SCRIPT", "mod": "scriptVersion" }
   }
 }
