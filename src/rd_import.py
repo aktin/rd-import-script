@@ -21,8 +21,6 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-import base64
-import hashlib
 import json
 import logging
 import os
@@ -279,7 +277,7 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
 
 def get_earliest_timestamp_per_row(
-    timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
+        timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
 ) -> pd.Series:
     """
     Parses a DataFrame of timestamp strings and returns the earliest
@@ -293,7 +291,7 @@ def get_earliest_timestamp_per_row(
 
 
 def assign_instance_number(
-    df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
+        df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
 ) -> pd.DataFrame:
     """
     Assign sequential instance numbers to encounters based on start time.
@@ -383,7 +381,7 @@ def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | Non
 
 
 def metadata_cd_transform(
-    row: dict, instruction: dict, key_cols_map: dict
+        row: dict, instruction: dict, key_cols_map: dict
 ) -> dict | None:
     """
     Generates a 'cd' observation from environment variables,
@@ -433,7 +431,7 @@ def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
 
 
 def dataframe_to_i2b2(
-    df: pd.DataFrame, instructions_list: list, key_cols_map: dict
+        df: pd.DataFrame, instructions_list: list, key_cols_map: dict
 ) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
@@ -461,38 +459,6 @@ def dataframe_to_i2b2(
     return pd.DataFrame(results)
 
 
-def get_sourcesystem_cd_from_zip(filepath: str, prefix: str = "AS:") -> str | None:
-    """
-    Calculates the SHA-256 hash of a file, encodes it in
-    URL-safe Base64, and prepends the given prefix.
-
-    This format is secure and fits within a VARCHAR(50) field.
-    (3-char prefix + 44-char hash = 47 chars)
-    """
-
-    sha256_hash = hashlib.sha256()
-
-    try:
-        with open(filepath, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096 * 1024), b""):
-                sha256_hash.update(byte_block)
-
-        hash_bytes = sha256_hash.digest()
-        base64_hash_bytes = base64.urlsafe_b64encode(hash_bytes)
-        base64_hash_str = base64_hash_bytes.decode("utf-8")
-        final_hash = base64_hash_str.rstrip("=")
-        final_sourcesystem_cd = f"{prefix}{final_hash}"
-
-        return final_sourcesystem_cd
-
-    except FileNotFoundError:
-        log.error(f"Error: file {filepath} does not exist")
-        return None
-    except Exception as e:
-        log.error(f"An unexpected error occurred: {e}")
-        return None
-
-
 def convert_values_to_i2b2_format(df: pd.DataFrame) -> pd.DataFrame:
     date_columns = ["start_date", "update_date", "import_date"]
     result_df = df.copy()
@@ -518,7 +484,7 @@ def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
 
 
 def load(transformed_df: pd.DataFrame) -> None:
-    # Establish database conncetion
+    # Establish database connection
     username = os.environ["username"]
     password = os.environ["password"]
     i2b2_connection_url = os.environ["connection-url"]
@@ -614,7 +580,6 @@ def upload_into_db(conn, table, transformed_df, batch_size=5000):
 def load_env() -> None:
     env_path = os.path.join("../local", ".env")
     if os.path.exists(env_path):
-        print(f"Info: Found '{env_path}' file, loading environment variables.")
         try:
             with open(env_path) as f:
                 for line in f:
@@ -628,13 +593,13 @@ def load_env() -> None:
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                            value.startswith('"') and value.endswith('"')
+                                value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
                         os.environ[key] = value
         except Exception as e:
-            print(f"Warning: Could not parse .env file. Error: {e}", file=sys.stderr)
+            log.error(f"Warning: Could not parse .env file. Error: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
