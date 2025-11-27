@@ -17,15 +17,9 @@
         "uhr1",
         "uhr2"
       ],
-      "integer_cleanup_columns": [
-        "einsatzort_hausnummer",
-        "zielort_hausnummer"
-      ],
       "regex_patterns": {
         "einsatznummer": "^1(2[3-9]|[3-9]\\d)0\\d{6}$",
         "einsatzart": "^(A\\d{2}|[AFHKLNPTUÜ])$",
-        "uhr_erstes_klingeln": "^\\d{14}$",
-        "uhr_annahme": "^\\d{14}$",
         "typ": "^(?:$|\\d+(?:-\\d+)?|(?:KTW|RTW|RWT|NEF|LNA|LF|HLF|KLF|GW|HAB|PTLF|DLK|KdoW|GW-A|GW-TIER|MTF|KEF|ELW|PERSONAL)(?: ?\\d+(?:-\\d+)?)?)$"
       },
       "i2b2_key_columns": {
