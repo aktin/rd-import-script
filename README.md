@@ -2,7 +2,7 @@
 
 ## 1. Project Goal
 
-The purposeof this project is to provide an automated import mechanism for emergency medical service data into an i2b2 data warehouse.
+The purpose of this project is to provide an automated import mechanism for emergency medical service data into an i2b2 data warehouse.
 
 This script acts as the bridge between an external, relational data format (CSV) and the i2b2 clinical data model. Its primary function is to **Extract, Transform, and Load (ETL)** this specific dataset.
 
@@ -12,7 +12,7 @@ This script is not intended to be run as a standalone file by end-users. Instead
 
 **The intended workflow is as follows:**
 
-1.  **User Action:** A user navigates to the "Art der Verarbeitung" selection in Daten-Import.
+1.  **User Action:** A user navigates in [DWH Admin](https://github.com/aktin/dwh-admin) to the "Art der Verarbeitung" selection in Daten-Import.
 2.  **Script Selection:** The user selects this script (e.g., "Rettungsdienst Importscript").
 3.  **File Upload:** The platform prompts the user to upload a single `.zip` file containing the emergency service data.
 4.  **Execution:** Upon receiving the file, the DWH backend executes this Python script, passing the path to the uploaded `.zip` file as an argument.
@@ -40,13 +40,13 @@ For a developer maintaining or improving this script, here is the step-by-step t
 ### Step 3: Preprocessing & Validation
 
 1.  **Mandatory Columns:** `preprocess` checks if all `mandatory_columns` (e.g., `einsatznummer`) are present.
-2.  **Data Cleaning:** It runs cleaning functions, such as `clean_integer_strings`, on specific columns to remove non-numeric characters (e.g., "12a" -> "12").
-3.  **Regex Validation:** The `validate_dataframe` function iterates through the regex patterns defined in `CONFIG` and checks every value in the corresponding columns. If an invalid, non-empty value is found, the script will raise an error and stop.
-4.  **Timestamp Check:** It ensures that rows are not missing *all* possible clock/time columns, as a valid `start_date` is required for i2b2.
+2. **Regex Validation:** The `validate_dataframe` function iterates through the regex patterns defined in `CONFIG` and checks every value in the corresponding columns. If an invalid, non-empty value is found, the script will raise an error and stop.
+3. **Timestamp Check:** It ensures that rows are not missing *all* possible clock/time columns, as a valid `start_date` is required for i2b2.
 
 ### Step 4: Transformation (Relational to i2b2)
 
-This is the core logic, handled by `transform_dataframe` and `dataframe_to_i2b2`.
+This is the core logic, handled by `transform_dataframe` and `dataframe_to_i2b2`. \
+Important: Facts are processed in ascending time order. This ensures that newer data automatically updates or overrides older information.
 
 1.  **Find Earliest Timestamp:** It scans all `clock_columns` for each row to find the earliest valid timestamp. This becomes the `start_date` for the i2b2 `observation_fact` and is stored in `_metadata_start_date`.
 2.  **Assign Instance Number:** It assigns an `instance_num` to ensure uniqueness for facts that share the same encounter and start time.
@@ -81,15 +81,6 @@ uuid=test-script-uuid
 script_version=1.0-test
 ```
 
-### Dependencies
-
-You will need the following Python libraries. It is recommended to create a `requirements.txt` file.
-
-```txt
-pandas
-sqlalchemy
-psycopg2-binary
-```
 
 ### Running the Script
 
@@ -97,8 +88,8 @@ Once your `.env` file is set up and dependencies are installed, you can run the 
 
 ```bash
 # Install dependencies
-pip install pandas sqlalchemy psycopg2-binary
+pip install -r requirements.txt
 
 # Run the import
-python rd-import.py /path/to/your/RettungsdienstData.zip
+python rd_import.py /path/to/your/RettungsdienstData.zip
 ```
