@@ -46,6 +46,8 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             return json.load(f)
+    except FileNotFoundError:
+        raise SystemExit(f"Config file {config_path} not found.")
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Failed to parse JSON configuration: {e}")
 
@@ -56,11 +58,14 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
 
 
 def find_matching_file(search_dir: Path, mandatory_columns: list) -> Path | None:
-    for file in search_dir.glob("*"):
+    for file in search_dir.glob("*.csv"):
         if not file.is_file():
             continue
-
-        df_header = pd.read_csv(file, sep=";", encoding="utf-8", dtype=str)
+        try:
+            df_header = pd.read_csv(file, sep=";", encoding="utf-8", dtype=str)
+        except Exception as e:
+            warnings.warn(f"Skipping file {file}: {e}")
+            continue
         if set(mandatory_columns).issubset(df_header.columns):
             return file
     return None
@@ -76,7 +81,7 @@ def main(zip_path: str) -> None:
 
     df = load_csv_into_df(file_path)
     df = preprocess(df, config)
-    validate_dataframe(df, config["regex_patterns"])
+    df = validate_dataframe(df, config["regex_patterns"])
 
     transformed_i2b2_data = transform_dataframe(df, config)
 
@@ -91,8 +96,7 @@ def extract_zip_into_tmp_dir(zip_path: str) -> Path:
     if not zip_path.is_file():
         raise SystemExit(f"Error: file {zip_path} does not exist")
 
-    temp_dir = Path(tempfile.gettempdir())
-    extract_dir = temp_dir / zip_path.stem
+    extract_dir = Path(tempfile.mkdtemp(prefix=f"{zip_path.stem}_"))
 
     try:
         extract_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +105,7 @@ def extract_zip_into_tmp_dir(zip_path: str) -> Path:
     except zipfile.BadZipFile as e:
         raise SystemExit(f"Error: file {zip_path} does not contain a zip file") from e
     except Exception as e:
-        raise SystemExit(f"Error: an unexpected error occurred") from e
+        raise SystemExit(f"Error: an unexpected error occurred: {e}") from e
 
     return extract_dir
 
@@ -259,6 +263,11 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
             if handler:
                 instructions.append(handler(col_name, instruction))
+            else:
+                warnings.warn(
+                    f"Unknown transformation type '{t_type}' for column '{col_name}' in configuration. This transformation will be ignored.",
+                    UserWarning,
+                )
 
     # Static concepts (unchanged)
     for concept in statics:
@@ -474,17 +483,36 @@ def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     result_df = df.copy()
     result_df["update_date"] = pd.Timestamp.now()
     result_df["import_date"] = pd.Timestamp.now()
-    result_df["sourcesystem_cd"] = "AS:" + os.getenv("uuid")
+    result_df["sourcesystem_cd"] = "AS:" + os.getenv("uuid", "unknown")
     return result_df
 
 
 def delete_duplicate_entries_and_upload_into_db(transformed_df: pd.DataFrame) -> None:
     # Establish database connection
-    username = os.environ["username"]
-    password = os.environ["password"]
-    i2b2_connection_url = os.environ["connection-url"]
+    username = os.getenv("username")
+    password = os.getenv("password")
+    i2b2_connection_url = os.getenv("connection-url")
+    missing = [
+        var
+        for var, val in [
+            ("username", username),
+            ("password", password),
+            ("connection-url", i2b2_connection_url),
+        ]
+        if not val
+    ]
+    if missing:
+        raise SystemExit(
+            f"Missing required environment variable(s): {', '.join(missing)}"
+        )
     pattern = r"jdbc:postgresql://(.*?)(\?searchPath=.*)?$"
-    connection = re.search(pattern, i2b2_connection_url).group(1)
+    match = re.search(pattern, i2b2_connection_url)
+    if not match:
+        raise SystemExit(
+            f"Invalid connection-url format: '{i2b2_connection_url}'. "
+            "Expected format: 'jdbc:postgresql://<host>:<port>/<db>?searchPath=...'"
+        )
+    connection = match.group(1)
     engine = db.create_engine(
         f"postgresql+psycopg2://{username}:{password}@{connection}", pool_pre_ping=True
     )
