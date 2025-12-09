@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*
 # Created on Wed Oct 22 13:00 2025
 # @VERSION=1.1
-# @VIEWNAME=Rettungsdienst Importscript (TOML)
+# @VIEWNAME=Rettungsdienst Importscript
 # @MIMETYPE=zip
 # @ID=rd
 """
@@ -22,19 +22,19 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 import json
-import logging
 import os
 import re
 import sys
 import tempfile
+import warnings
 import zipfile
 from datetime import datetime
-from pathlib import Path, PosixPath
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import sqlalchemy as db
-from sqlalchemy import exc, tuple_
+from sqlalchemy import tuple_
 
 
 # =============================================================================
@@ -46,13 +46,6 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except FileNotFoundError:
-        # Try looking one directory up
-        parent_path = os.path.join("..", config_path)
-        if os.path.exists(parent_path):
-            with open(parent_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        raise FileNotFoundError(f"Configuration file '{config_path}' not found.")
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Failed to parse JSON configuration: {e}")
 
@@ -62,39 +55,41 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
 # =============================================================================
 
 
+def find_matching_file(search_dir: Path, mandatory_columns: list) -> Path | None:
+    for file in search_dir.glob("*"):
+        if not file.is_file():
+            continue
+
+        df_header = pd.read_csv(file, sep=";", encoding="utf-8", dtype=str)
+        if set(mandatory_columns).issubset(df_header.columns):
+            return file
+    return None
+
+
 def main(zip_path: str) -> None:
-    if not CONFIG:
-        log.error("Configuration not loaded. Aborting.")
-        return
+    config = load_config()
 
-    log.info(f"Starting import for {zip_path}")
     extract_dir = extract_zip_into_tmp_dir(zip_path)
+    file_path = find_matching_file(
+        extract_dir, mandatory_columns=config["mandatory_columns"]
+    )
 
-    for _, file_config in CONFIG["files"].items():
-        filename = file_config["filename"]
-        log.info(f"Processing file: {filename}...")
+    df = load_csv_into_df(file_path)
+    df = preprocess(df, config)
+    validate_dataframe(df, config["regex_patterns"])
 
-        file_path = extract_dir / filename
+    transformed_i2b2_data = transform_dataframe(df, config)
 
-        df = load_csv_into_df(file_path)
-        df = preprocess(df, file_config)
-        validate_dataframe(df, file_config["regex_patterns"])
+    transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data, zip_path)
+    transformed_i2b2_data = convert_values_to_i2b2_format(transformed_i2b2_data)
 
-        transformed_i2b2_data = transform_dataframe(df, file_config)
-
-        transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data, zip_path)
-        transformed_i2b2_data = convert_values_to_i2b2_format(transformed_i2b2_data)
-
-        log.info(f"Loading {len(transformed_i2b2_data)} i2b2 facts...")
-        load(transformed_i2b2_data)
-
-        log.info(f"Successfully loaded data for {filename}.")
+    delete_duplicate_entries_and_upload_into_db(transformed_i2b2_data)
 
 
 def extract_zip_into_tmp_dir(zip_path: str) -> Path:
     zip_path = Path(zip_path)
     if not zip_path.is_file():
-        raise FileNotFoundError(f"Error: file {zip_path} does not exist")
+        raise SystemExit(f"Error: file {zip_path} does not exist")
 
     temp_dir = Path(tempfile.gettempdir())
     extract_dir = temp_dir / zip_path.stem
@@ -104,14 +99,14 @@ def extract_zip_into_tmp_dir(zip_path: str) -> Path:
         with zipfile.ZipFile(zip_path, "r") as zip_file:
             zip_file.extractall(extract_dir)
     except zipfile.BadZipFile as e:
-        raise RuntimeError(f"Error: file {zip_path} does not contain a zip file") from e
+        raise SystemExit(f"Error: file {zip_path} does not contain a zip file") from e
     except Exception as e:
-        raise RuntimeError(f"Error: an unexpected error occurred") from e
+        raise SystemExit(f"Error: an unexpected error occurred") from e
 
     return extract_dir
 
 
-def load_csv_into_df(filepath: PosixPath) -> pd.DataFrame:
+def load_csv_into_df(filepath: Path) -> pd.DataFrame:
     try:
         einsatzdaten_df = pd.read_csv(filepath, sep=";", dtype=str)
 
@@ -119,26 +114,15 @@ def load_csv_into_df(filepath: PosixPath) -> pd.DataFrame:
             raise ValueError("CSV file is empty.")
 
     except FileNotFoundError:
-        raise FileNotFoundError(f"Error: file {filepath} does not exist")
+        raise SystemExit(f"Error: file {filepath} does not exist")
     except Exception as e:
-        raise Exception(f"Error reading CSV: {e}")
+        raise SystemExit(f"Error reading CSV: {e}")
 
     return einsatzdaten_df
 
 
 def preprocess(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
-    """
-    Preprocess input DataFrame before transformation.
-
-    - Checks mandatory columns.
-    - Cleans integer-like columns.
-    - Removes rows missing all clock values.
-    """
     check_df_for_mandatory_columns(df, file_config["mandatory_columns"])
-
-    if file_config.get("integer_cleanup_columns"):
-        log.info(f"Cleaning integer columns: {file_config['integer_cleanup_columns']}")
-        # df = clean_integer_strings(df, file_config["integer_cleanup_columns"])
 
     df = check_clock_values(df, file_config["clock_columns"])
 
@@ -165,7 +149,7 @@ def check_clock_values(df: pd.DataFrame, clock_columns: list) -> pd.DataFrame:
         num_bad_rows = missing_all_clocks.sum()
         first_bad_row_index = missing_all_clocks.idxmax()
 
-        log.warning(
+        warnings.warn(
             f"Found and removed {num_bad_rows} rows (starting from index {first_bad_row_index}) "
             "that were missing all available clock columns."
         )
@@ -173,32 +157,36 @@ def check_clock_values(df: pd.DataFrame, clock_columns: list) -> pd.DataFrame:
     return df
 
 
-def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> None:
+def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> pd.DataFrame:
     """
     Validate DataFrame columns against regex patterns.
+    Drops rows containing invalid values
     """
+    df_clean = df.copy()
+
     for col, pattern in regex_patterns.items():
-        if col in df.columns:
-            series_to_check = df[col].fillna("").astype(str)
+        if col in df_clean.columns:
+            series_to_check = df_clean[col].fillna("").astype(str)
 
             is_empty = series_to_check == ""
-
-            matches_pattern = series_to_check.str.match(pattern, na=False)
+            matches_pattern = series_to_check.str.match(pattern)
 
             is_valid = is_empty | matches_pattern
 
             if not is_valid.all():
                 bad_rows_mask = ~is_valid
-                bad_rows = df[bad_rows_mask]
+                num_bad_rows = bad_rows_mask.sum()
 
-                num_bad_rows = len(bad_rows)
-                first_bad_val = bad_rows.iloc[0][col]
+                first_bad_val = df_clean.loc[bad_rows_mask, col].iloc[0]
 
-                log.error(
-                    f"Validation failed for column '{col}'. Found {num_bad_rows} "
-                    f"non-matching, non-empty rows. Example: '{first_bad_val}'"
+                warnings.warn(
+                    f"Column '{col}': Found {num_bad_rows} invalid rows. "
+                    f"Dropping them. Example invalid value: '{first_bad_val}'"
                 )
-                raise ValueError(f"Validation failed for column '{col}'.")
+
+                df_clean = df_clean[is_valid]
+
+    return df_clean
 
 
 def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
@@ -213,61 +201,66 @@ def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     return dataframe_to_i2b2(df, transform_list, key_cols)
 
 
+def _handle_tval(col_name, instruction):
+    return {
+        "transform_type": "tval",
+        "source_col": col_name,
+        "concept_cd": instruction,
+    }
+
+
+def _handle_code(col_name, instruction):
+    return {
+        "transform_type": "code",
+        "source_col": col_name,
+        "concept_cd_base": instruction.get("concept"),
+    }
+
+
+def _handle_cd(col_name, instruction):
+    return {
+        "transform_type": "cd",
+        "source_col": col_name,
+        "concept_cd": instruction.get("concept"),
+        "modifier_cd": instruction.get("mod"),
+    }
+
+
+def _handle_metadata(col_name, instruction):
+    return {
+        "transform_type": "metadata_cd",
+        "source_col": None,
+        "concept_cd": instruction.get("concept"),
+        "modifier_cd": instruction.get("mod"),
+    }
+
+
 def parse_json_transformations(config: dict) -> list[dict]:
-    """
-    Converts the concise JSON mapping into the standard list format.
-    """
     mapping = config.get("transformations", {})
     statics = config.get("static_concepts", [])
     instructions = []
 
+    transformation_handlers = {
+        "code": _handle_code,
+        "cd": _handle_cd,
+        "metadata": _handle_metadata,
+    }
+
     for col_name, instruction in mapping.items():
-
-        # 1. Simple String -> 'tval'
+        # Handle simple string case
         if isinstance(instruction, str):
-            instructions.append(
-                {
-                    "transform_type": "tval",
-                    "source_col": col_name,
-                    "concept_cd": instruction,
-                }
-            )
+            instructions.append(_handle_tval(col_name, instruction))
+            continue
 
-        # 2. Object/Dict -> Complex types
-        elif isinstance(instruction, dict):
+        # Handle dict case via Registry
+        if isinstance(instruction, dict):
             t_type = instruction.get("type")
+            handler = transformation_handlers.get(t_type)
 
-            if t_type == "code":
-                instructions.append(
-                    {
-                        "transform_type": "code",
-                        "source_col": col_name,
-                        "concept_cd_base": instruction.get("concept"),
-                    }
-                )
+            if handler:
+                instructions.append(handler(col_name, instruction))
 
-            elif t_type == "cd":
-                instructions.append(
-                    {
-                        "transform_type": "cd",
-                        "source_col": col_name,
-                        "concept_cd": instruction.get("concept"),
-                        "modifier_cd": instruction.get("mod"),
-                    }
-                )
-
-            elif t_type == "metadata":
-                # Metadata doesn't use a CSV column, but for consistency
-                instructions.append(
-                    {
-                        "transform_type": "metadata_cd",
-                        "source_col": None,
-                        "concept_cd": instruction.get("concept"),
-                        "modifier_cd": instruction.get("mod"),
-                    }
-                )
-
-    # 3. Static Concepts
+    # Static concepts (unchanged)
     for concept in statics:
         instructions.append(
             {"transform_type": "code", "source_col": None, "concept_cd_base": concept}
@@ -277,7 +270,7 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
 
 def get_earliest_timestamp_per_row(
-        timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
+    timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
 ) -> pd.Series:
     """
     Parses a DataFrame of timestamp strings and returns the earliest
@@ -291,7 +284,7 @@ def get_earliest_timestamp_per_row(
 
 
 def assign_instance_number(
-        df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
+    df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
 ) -> pd.DataFrame:
     """
     Assign sequential instance numbers to encounters based on start time.
@@ -359,7 +352,7 @@ def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | Non
     """
     Transform a row into a 'cd' i2b2 observation (concept + modifier). Handle metadata.
     """
-    source_col = instruction.get("source_col")  # Safe access for TOML compatibility
+    source_col = instruction.get("source_col")
 
     if not source_col:
         return None
@@ -381,7 +374,7 @@ def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | Non
 
 
 def metadata_cd_transform(
-        row: dict, instruction: dict, key_cols_map: dict
+    row: dict, instruction: dict, key_cols_map: dict
 ) -> dict | None:
     """
     Generates a 'cd' observation from environment variables,
@@ -392,11 +385,11 @@ def metadata_cd_transform(
     elif instruction["modifier_cd"] == "scriptVersion":
         value = os.getenv("script_version")
     else:
-        log.warning(f"Unknown metadata modifier: {instruction['modifier_cd']}")
+        warnings.warn(f"Unknown metadata modifier: {instruction['modifier_cd']}")
         return None
 
     if not value:
-        log.warning(f"Environment variable for {instruction['modifier_cd']} not set.")
+        warnings.warn(f"Environment variable for {instruction['modifier_cd']} not set.")
         return None
 
     base = base_i2b2_row(row, key_cols_map)
@@ -431,7 +424,7 @@ def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
 
 
 def dataframe_to_i2b2(
-        df: pd.DataFrame, instructions_list: list, key_cols_map: dict
+    df: pd.DataFrame, instructions_list: list, key_cols_map: dict
 ) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
@@ -449,7 +442,9 @@ def dataframe_to_i2b2(
         for instruction in instructions_list:
             transform_func = dispatcher.get(instruction["transform_type"])
             if not transform_func:
-                log.warning(f"Unknown transform_type: {instruction['transform_type']}")
+                warnings.warn(
+                    f"Unknown transform_type: {instruction['transform_type']}"
+                )
                 continue
 
             transformed = transform_func(row_dict, instruction, key_cols_map)
@@ -483,7 +478,7 @@ def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     return result_df
 
 
-def load(transformed_df: pd.DataFrame) -> None:
+def delete_duplicate_entries_and_upload_into_db(transformed_df: pd.DataFrame) -> None:
     # Establish database connection
     username = os.environ["username"]
     password = os.environ["password"]
@@ -493,17 +488,14 @@ def load(transformed_df: pd.DataFrame) -> None:
     engine = db.create_engine(
         f"postgresql+psycopg2://{username}:{password}@{connection}", pool_pre_ping=True
     )
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         table = db.Table("observation_fact", db.MetaData(), autoload_with=engine)
-        delete_from_db(conn, table, transformed_df)
+
+        delete_duplicate_entries(conn, table, transformed_df)
         upload_into_db(conn, table, transformed_df)
 
 
-def delete_from_db(conn, TABLE, transformed_df):
-    """
-    Bulk deletes existing records from TABLE based on encounter_num and concept_cd
-    within the 'AS' source system scope.
-    """
+def delete_duplicate_entries(conn, table, transformed_df):
     keys_to_delete = (
         transformed_df[["encounter_num", "concept_cd"]]
         .drop_duplicates()
@@ -511,69 +503,34 @@ def delete_from_db(conn, TABLE, transformed_df):
     )
 
     if not keys_to_delete:
-        log.info("No records to delete.")
+        warnings.warn("No records to delete.")
         return
 
-    with conn.begin() as transaction:
-        try:
-            stmt = (
-                TABLE.delete()
-                .where(TABLE.c.sourcesystem_cd.like("AS%"))
-                .where(
-                    tuple_(TABLE.c.encounter_num, TABLE.c.concept_cd).in_(
-                        keys_to_delete
-                    )
-                )
-            )
+    stmt = (
+        table.delete()
+        .where(table.c.sourcesystem_cd.like("AS%"))
+        .where(tuple_(table.c.encounter_num, table.c.concept_cd).in_(keys_to_delete))
+    )
 
-            result = conn.execute(stmt)
-            log.info(f"Successfully deleted {result.rowcount} rows from database.")
-
-            transaction.commit()
-
-        except exc.SQLAlchemyError as e:
-            transaction.rollback()
-            log.error(
-                f"Database error occurred. Transaction rolled back. Database state preserved. Error: {e}"
-            )
-            raise e
+    result = conn.execute(stmt)
+    warnings.warn(f"Deleted {result.rowcount} rows.")
 
 
 def upload_into_db(conn, table, transformed_df, batch_size=5000):
-    """
-    Loads dataframe rows into the database table in batches.
-    """
+    total_rows = len(transformed_df)
 
-    with conn.begin() as transaction:
-        total_rows = len(transformed_df)
+    for start_idx in range(0, total_rows, batch_size):
+        end_idx = start_idx + batch_size
+        batch_df = transformed_df.iloc[start_idx:end_idx]
+        records = batch_df.to_dict(orient="records")
 
-        try:
-            for start_idx in range(0, total_rows, batch_size):
-                end_idx = start_idx + batch_size
-                batch_df = transformed_df.iloc[start_idx:end_idx]
-
-                records = batch_df.to_dict(orient="records")
-
-                if records:
-                    conn.execute(table.insert(), records)
-                    log.debug(
-                        f"Inserted batch {start_idx}-{min(end_idx, total_rows)} of {total_rows}"
-                    )
-
-            transaction.commit()
-            log.info(f"Successfully uploaded {total_rows} records to database.")
-
-        except exc.SQLAlchemyError as e:
-            transaction.rollback()
-            log.error(f"Database insert failed. Transaction rolled back. Error: {e}")
-
-            raise e
-        except Exception as e:
-            transaction.rollback()
-            log.error(
-                f"Unexpected error during upload processing. Transaction rolled back. Error: {e}"
+        if records:
+            conn.execute(table.insert(), records)
+            warnings.warn(
+                f"Inserted batch {start_idx}-{min(end_idx, total_rows)} of {total_rows}"
             )
-            raise e
+
+    print(f"Uploaded {total_rows} records.")
 
 
 # For testing purposes
@@ -593,13 +550,13 @@ def load_env() -> None:
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                                value.startswith('"') and value.endswith('"')
+                            value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
                         os.environ[key] = value
         except Exception as e:
-            log.error(f"Warning: Could not parse .env file. Error: {e}", file=sys.stderr)
+            raise SystemExit(f"Warning: Could not parse .env file. Error: {e}")
 
 
 if __name__ == "__main__":
@@ -608,22 +565,5 @@ if __name__ == "__main__":
 
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python rd_import.py <zip-file>")
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler("rd-import.log"),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
-
-    log = logging.getLogger(__name__)
-
-    try:
-        CONFIG = load_config()
-    except Exception as e:
-        print(f"CRITICAL: {e}", file=sys.stderr)
-        CONFIG = {}
 
     main(sys.argv[1])
