@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*
 # Created on Wed Oct 22 13:00 2025
 # @VERSION=1.1
-# @VIEWNAME=Rettungsdienst Importscript
+# @VIEWNAME=Rettungsdienst Importskript
 # @MIMETYPE=zip
 # @ID=rd
 """
