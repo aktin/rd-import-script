@@ -46,6 +46,7 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Failed to parse JSON configuration: {e}")
 
+
 # For testing purposes
 def load_env() -> None:
     env_path = os.path.join("../local", ".env")
@@ -63,31 +64,13 @@ def load_env() -> None:
                         value = parts[1].strip()
 
                         if (value.startswith("'") and value.endswith("'")) or (
-                                value.startswith('"') and value.endswith('"')
+                            value.startswith('"') and value.endswith('"')
                         ):
                             value = value[1:-1]
 
                         os.environ[key] = value
         except Exception as e:
             raise SystemExit(f"Warning: Could not parse .env file. Error: {e}")
-
-
-
-def find_matching_file(search_dir: Path, mandatory_columns: list) -> Path | None:
-    """
-    Scans a directory for the first CSV file containing all specified columns.
-    """
-    for file in search_dir.glob("*.csv"):
-        if not file.is_file():
-            continue
-        try:
-            df_header = pd.read_csv(file, sep=";", encoding="utf-8", dtype=str, nrows=0)
-        except Exception as e:
-            warnings.warn(f"Skipping file {file}: {e}")
-            continue
-        if set(mandatory_columns).issubset(df_header.columns):
-            return file
-    return None
 
 
 def main(zip_path: str) -> None:
@@ -127,6 +110,23 @@ def extract_zip_into_tmp_dir(zip_path: str) -> Path:
         raise SystemExit(f"Error: an unexpected error occurred: {e}") from e
 
     return extract_dir
+
+
+def find_matching_file(search_dir: Path, mandatory_columns: list) -> Path | None:
+    """
+    Scans a directory for the first CSV file containing all specified columns.
+    """
+    for file in search_dir.glob("*.csv"):
+        if not file.is_file():
+            continue
+        try:
+            df_header = pd.read_csv(file, sep=";", encoding="utf-8", dtype=str, nrows=0)
+        except Exception as e:
+            warnings.warn(f"Skipping file {file}: {e}")
+            continue
+        if set(mandatory_columns).issubset(df_header.columns):
+            return file
+    return None
 
 
 def load_csv_into_df(filepath: Path) -> pd.DataFrame:
@@ -212,7 +212,9 @@ def validate_dataframe_by_regex(df: pd.DataFrame, regex_patterns: dict) -> pd.Da
     return df_clean
 
 
-def transform_dataframe_into_i2b2_format(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
+def transform_dataframe_into_i2b2_format(
+    df: pd.DataFrame, file_config: dict
+) -> pd.DataFrame:
     key_cols = file_config["i2b2_key_columns"]
     transform_list = parse_json_transformations(file_config)
 
@@ -222,40 +224,6 @@ def transform_dataframe_into_i2b2_format(df: pd.DataFrame, file_config: dict) ->
     )
 
     return dataframe_to_i2b2(df, transform_list, key_cols)
-
-
-def _handle_tval(col_name, instruction):
-    return {
-        "transform_type": "tval",
-        "source_col": col_name,
-        "concept_cd": instruction,
-    }
-
-
-def _handle_code(col_name, instruction):
-    return {
-        "transform_type": "code",
-        "source_col": col_name,
-        "concept_cd_base": instruction.get("concept"),
-    }
-
-
-def _handle_cd(col_name, instruction):
-    return {
-        "transform_type": "cd",
-        "source_col": col_name,
-        "concept_cd": instruction.get("concept"),
-        "modifier_cd": instruction.get("mod"),
-    }
-
-
-def _handle_metadata(col_name, instruction):
-    return {
-        "transform_type": "metadata_cd",
-        "source_col": None,
-        "concept_cd": instruction.get("concept"),
-        "modifier_cd": instruction.get("mod"),
-    }
 
 
 def parse_json_transformations(config: dict) -> list[dict]:
@@ -297,8 +265,42 @@ def parse_json_transformations(config: dict) -> list[dict]:
     return instructions
 
 
+def _handle_tval(col_name, instruction):
+    return {
+        "transform_type": "tval",
+        "source_col": col_name,
+        "concept_cd": instruction,
+    }
+
+
+def _handle_code(col_name, instruction):
+    return {
+        "transform_type": "code",
+        "source_col": col_name,
+        "concept_cd_base": instruction.get("concept"),
+    }
+
+
+def _handle_cd(col_name, instruction):
+    return {
+        "transform_type": "cd",
+        "source_col": col_name,
+        "concept_cd": instruction.get("concept"),
+        "modifier_cd": instruction.get("mod"),
+    }
+
+
+def _handle_metadata(col_name, instruction):
+    return {
+        "transform_type": "metadata_cd",
+        "source_col": None,
+        "concept_cd": instruction.get("concept"),
+        "modifier_cd": instruction.get("mod"),
+    }
+
+
 def get_earliest_timestamp_per_row(
-        timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
+    timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
 ) -> pd.Series:
     """
     Parses a DataFrame of timestamp strings and returns the earliest
@@ -312,7 +314,7 @@ def get_earliest_timestamp_per_row(
 
 
 def assign_instance_number(
-        df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
+    df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
 ) -> pd.DataFrame:
     """
     Assign sequential instance numbers to encounters based on start time.
@@ -331,6 +333,56 @@ def assign_instance_number(
     instance_num_col = file_config["i2b2_key_columns"]["instance_num"]
     df[instance_num_col] = df.groupby(encounter_col).cumcount() + 1
     return df
+
+
+def dataframe_to_i2b2(
+    df: pd.DataFrame, instructions_list: list, key_cols_map: dict
+) -> pd.DataFrame:
+    """
+    Apply transformation instructions to all rows in a DataFrame.
+    """
+    dispatcher = {
+        "tval": tval_transform,
+        "code": code_transform,
+        "cd": cd_transform,
+        "metadata_cd": metadata_cd_transform,
+    }
+    results = []
+    for row in df.itertuples(index=False):
+        row_dict = dict(zip(df.columns, row))
+
+        for instruction in instructions_list:
+            transform_func = dispatcher.get(instruction["transform_type"])
+            if not transform_func:
+                warnings.warn(
+                    f"Unknown transform_type: {instruction['transform_type']}"
+                )
+                continue
+
+            transformed = transform_func(row_dict, instruction, key_cols_map)
+            if transformed:
+                results.append(transformed)
+
+    return pd.DataFrame(results)
+
+
+def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
+    return {
+        "encounter_num": row.get(key_cols_map["encounter_num"]),
+        "patient_num": row.get(key_cols_map["patient_num"]),
+        "provider_id": "@",
+        "start_date": row.get(key_cols_map["start_date"]),
+        "modifier_cd": "@",
+        "instance_num": row.get(key_cols_map.get("instance_num"), 1),
+        "valtype": "",
+        "tval_char": "",
+        "valueflag_cd": "",
+        "units_cd": "@",
+        "location_cd": "@",
+        "observation_blob": "",
+        "update_date": "",
+        "import_date": "",
+    }
 
 
 def tval_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | None:
@@ -402,7 +454,7 @@ def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | Non
 
 
 def metadata_cd_transform(
-        row: dict, instruction: dict, key_cols_map: dict
+    row: dict, instruction: dict, key_cols_map: dict
 ) -> dict | None:
     """
     Generates a 'cd' observation from environment variables,
@@ -432,54 +484,12 @@ def metadata_cd_transform(
     return base
 
 
-def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
-    return {
-        "encounter_num": row.get(key_cols_map["encounter_num"]),
-        "patient_num": row.get(key_cols_map["patient_num"]),
-        "provider_id": "@",
-        "start_date": row.get(key_cols_map["start_date"]),
-        "modifier_cd": "@",
-        "instance_num": row.get(key_cols_map.get("instance_num"), 1),
-        "valtype": "",
-        "tval_char": "",
-        "valueflag_cd": "",
-        "units_cd": "@",
-        "location_cd": "@",
-        "observation_blob": "",
-        "update_date": "",
-        "import_date": "",
-    }
-
-
-def dataframe_to_i2b2(
-        df: pd.DataFrame, instructions_list: list, key_cols_map: dict
-) -> pd.DataFrame:
-    """
-    Apply transformation instructions to all rows in a DataFrame.
-    """
-    dispatcher = {
-        "tval": tval_transform,
-        "code": code_transform,
-        "cd": cd_transform,
-        "metadata_cd": metadata_cd_transform,
-    }
-    results = []
-    for row in df.itertuples(index=False):
-        row_dict = dict(zip(df.columns, row))
-
-        for instruction in instructions_list:
-            transform_func = dispatcher.get(instruction["transform_type"])
-            if not transform_func:
-                warnings.warn(
-                    f"Unknown transform_type: {instruction['transform_type']}"
-                )
-                continue
-
-            transformed = transform_func(row_dict, instruction, key_cols_map)
-            if transformed:
-                results.append(transformed)
-
-    return pd.DataFrame(results)
+def add_general_i2b2_info(df: pd.DataFrame) -> pd.DataFrame:
+    result_df = df.copy()
+    result_df["update_date"] = pd.Timestamp.now()
+    result_df["import_date"] = pd.Timestamp.now()
+    result_df["sourcesystem_cd"] = "AS:" + os.environ["uuid"]
+    return result_df
 
 
 def convert_values_to_i2b2_format(df: pd.DataFrame) -> pd.DataFrame:
@@ -495,14 +505,6 @@ def convert_values_to_i2b2_format(df: pd.DataFrame) -> pd.DataFrame:
                 )
             )
         )
-    return result_df
-
-
-def add_general_i2b2_info(df: pd.DataFrame) -> pd.DataFrame:
-    result_df = df.copy()
-    result_df["update_date"] = pd.Timestamp.now()
-    result_df["import_date"] = pd.Timestamp.now()
-    result_df["sourcesystem_cd"] = "AS:" + os.environ["uuid"]
     return result_df
 
 
