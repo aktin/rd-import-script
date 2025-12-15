@@ -23,8 +23,8 @@
   "i2b2_key_columns": {
     "encounter_num": "einsatznummer",
     "patient_num": "einsatznummer",
-    "start_date": "_metadata_start_date",
-    "instance_num": "_metadata_instance_num"
+    "start_date": "metadata_start_date",
+    "instance_num": "metadata_instance_num"
   },
   "static_concepts": [
     "AS:LOCATION",

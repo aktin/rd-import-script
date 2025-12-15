@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*
 # Created on Wed Oct 22 13:00 2025
-# @VERSION=1.1
-# @VIEWNAME=Rettungsdienst Importskript
+# @VERSION=1.0
+# @VIEWNAME=Rettungsdienst Importscript
 # @MIMETYPE=zip
 # @ID=rd
 """
@@ -37,11 +37,6 @@ import sqlalchemy as db
 from sqlalchemy import tuple_
 
 
-# =============================================================================
-# --- CONFIGURATION LOADING ---
-# =============================================================================
-
-
 def load_config(config_path: str = "config.json") -> dict[str, Any]:
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -51,18 +46,42 @@ def load_config(config_path: str = "config.json") -> dict[str, Any]:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Failed to parse JSON configuration: {e}")
 
+# For testing purposes
+def load_env() -> None:
+    env_path = os.path.join("../local", ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
 
-# =============================================================================
-# --- Script ---
-# =============================================================================
+                    parts = line.split("=", 1)
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip()
+
+                        if (value.startswith("'") and value.endswith("'")) or (
+                                value.startswith('"') and value.endswith('"')
+                        ):
+                            value = value[1:-1]
+
+                        os.environ[key] = value
+        except Exception as e:
+            raise SystemExit(f"Warning: Could not parse .env file. Error: {e}")
+
 
 
 def find_matching_file(search_dir: Path, mandatory_columns: list) -> Path | None:
+    """
+    Scans a directory for the first CSV file containing all specified columns.
+    """
     for file in search_dir.glob("*.csv"):
         if not file.is_file():
             continue
         try:
-            df_header = pd.read_csv(file, sep=";", encoding="utf-8", dtype=str)
+            df_header = pd.read_csv(file, sep=";", encoding="utf-8", dtype=str, nrows=0)
         except Exception as e:
             warnings.warn(f"Skipping file {file}: {e}")
             continue
@@ -81,11 +100,11 @@ def main(zip_path: str) -> None:
 
     df = load_csv_into_df(file_path)
     df = preprocess(df, config)
-    df = validate_dataframe(df, config["regex_patterns"])
+    df = validate_dataframe_by_regex(df, config["regex_patterns"])
 
-    transformed_i2b2_data = transform_dataframe(df, config)
+    transformed_i2b2_data = transform_dataframe_into_i2b2_format(df, config)
 
-    transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data, zip_path)
+    transformed_i2b2_data = add_general_i2b2_info(transformed_i2b2_data)
     transformed_i2b2_data = convert_values_to_i2b2_format(transformed_i2b2_data)
 
     delete_duplicate_entries_and_upload_into_db(transformed_i2b2_data)
@@ -112,9 +131,9 @@ def extract_zip_into_tmp_dir(zip_path: str) -> Path:
 
 def load_csv_into_df(filepath: Path) -> pd.DataFrame:
     try:
-        einsatzdaten_df = pd.read_csv(filepath, sep=";", dtype=str)
+        operational_data = pd.read_csv(filepath, sep=";", dtype=str)
 
-        if einsatzdaten_df.empty:
+        if operational_data.empty:
             raise ValueError("CSV file is empty.")
 
     except FileNotFoundError:
@@ -122,7 +141,7 @@ def load_csv_into_df(filepath: Path) -> pd.DataFrame:
     except Exception as e:
         raise SystemExit(f"Error reading CSV: {e}")
 
-    return einsatzdaten_df
+    return operational_data
 
 
 def preprocess(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
@@ -161,7 +180,7 @@ def check_clock_values(df: pd.DataFrame, clock_columns: list) -> pd.DataFrame:
     return df
 
 
-def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> pd.DataFrame:
+def validate_dataframe_by_regex(df: pd.DataFrame, regex_patterns: dict) -> pd.DataFrame:
     """
     Validate DataFrame columns against regex patterns.
     Drops rows containing invalid values
@@ -193,11 +212,11 @@ def validate_dataframe(df: pd.DataFrame, regex_patterns: dict) -> pd.DataFrame:
     return df_clean
 
 
-def transform_dataframe(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
+def transform_dataframe_into_i2b2_format(df: pd.DataFrame, file_config: dict) -> pd.DataFrame:
     key_cols = file_config["i2b2_key_columns"]
     transform_list = parse_json_transformations(file_config)
 
-    df["_metadata_start_date"] = get_earliest_timestamp_per_row(df)
+    df["metadata_start_date"] = get_earliest_timestamp_per_row(df)
     df = assign_instance_number(
         df, key_cols["encounter_num"], key_cols["start_date"], file_config
     )
@@ -279,7 +298,7 @@ def parse_json_transformations(config: dict) -> list[dict]:
 
 
 def get_earliest_timestamp_per_row(
-    timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
+        timestamp_df: pd.DataFrame, date_format: str = "%Y%m%d%H%M%S"
 ) -> pd.Series:
     """
     Parses a DataFrame of timestamp strings and returns the earliest
@@ -293,7 +312,7 @@ def get_earliest_timestamp_per_row(
 
 
 def assign_instance_number(
-    df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
+        df: pd.DataFrame, encounter_col: str, start_date_col: str, file_config: dict
 ) -> pd.DataFrame:
     """
     Assign sequential instance numbers to encounters based on start time.
@@ -383,7 +402,7 @@ def cd_transform(row: dict, instruction: dict, key_cols_map: dict) -> dict | Non
 
 
 def metadata_cd_transform(
-    row: dict, instruction: dict, key_cols_map: dict
+        row: dict, instruction: dict, key_cols_map: dict
 ) -> dict | None:
     """
     Generates a 'cd' observation from environment variables,
@@ -433,7 +452,7 @@ def base_i2b2_row(row: dict, key_cols_map: dict) -> dict:
 
 
 def dataframe_to_i2b2(
-    df: pd.DataFrame, instructions_list: list, key_cols_map: dict
+        df: pd.DataFrame, instructions_list: list, key_cols_map: dict
 ) -> pd.DataFrame:
     """
     Apply transformation instructions to all rows in a DataFrame.
@@ -479,11 +498,11 @@ def convert_values_to_i2b2_format(df: pd.DataFrame) -> pd.DataFrame:
     return result_df
 
 
-def add_general_i2b2_info(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
+def add_general_i2b2_info(df: pd.DataFrame) -> pd.DataFrame:
     result_df = df.copy()
     result_df["update_date"] = pd.Timestamp.now()
     result_df["import_date"] = pd.Timestamp.now()
-    result_df["sourcesystem_cd"] = "AS:" + os.getenv("uuid", "unknown")
+    result_df["sourcesystem_cd"] = "AS:" + os.environ["uuid"]
     return result_df
 
 
@@ -559,32 +578,6 @@ def upload_into_db(conn, table, transformed_df, batch_size=5000):
             )
 
     print(f"Uploaded {total_rows} records.")
-
-
-# For testing purposes
-def load_env() -> None:
-    env_path = os.path.join("../local", ".env")
-    if os.path.exists(env_path):
-        try:
-            with open(env_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-
-                    parts = line.split("=", 1)
-                    if len(parts) == 2:
-                        key = parts[0].strip()
-                        value = parts[1].strip()
-
-                        if (value.startswith("'") and value.endswith("'")) or (
-                            value.startswith('"') and value.endswith('"')
-                        ):
-                            value = value[1:-1]
-
-                        os.environ[key] = value
-        except Exception as e:
-            raise SystemExit(f"Warning: Could not parse .env file. Error: {e}")
 
 
 if __name__ == "__main__":
